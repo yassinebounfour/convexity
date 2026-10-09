@@ -70,3 +70,76 @@ def test_curve_set_initial_curves_interface():
         cs.Z0("df", 1.0)
     cs[SETUP.key("df")] = FunctionCurve(lambda T: np.exp(-0.03 * T))
     np.testing.assert_allclose(cs.Z0("df", np.array([1.0, 2.0])), np.exp([-0.03, -0.06]))
+
+
+from collateraldiscounting.instruments import (schedule, Swap, FXForward, ResettingCCS, Swaption, FXOption,
+                                               CurrencyBasisSwaption, Quote, MarketQuotes)
+from collateraldiscounting.pricers import DeterministicPricer
+
+
+def flat_curves(rd=0.04, rf=0.02, q=-0.001, x0=1.1):
+    cs = CurveSet(SETUP, x0)
+    cs[SETUP.key("dd")] = PiecewiseFlatCurve([50.0], [rd])
+    cs[SETUP.key("ff")] = PiecewiseFlatCurve([50.0], [rf])
+    cs[SETUP.key("fd")] = SpreadCurve(cs[SETUP.key("ff")], PiecewiseFlatCurve([50.0], [q]))
+    return cs
+
+
+def test_schedule():
+    np.testing.assert_allclose(schedule(5.0, 6.0, 0.25), [5, 5.25, 5.5, 5.75, 6])
+    with pytest.raises(ValueError):
+        schedule(0.0, 2.1, 0.25)
+
+
+def test_swap_rates_on_flat_curves():
+    pr = DeterministicPricer(flat_curves())
+    ois = Swap(SOFR, 10.0)                                      # annual fixed, OIS float: telescopes
+    assert ois.quote(pr) == pytest.approx(np.expm1(0.04))
+    e3m = Swap(E3M, 10.0)                                       # IBOR: kappa on every float period
+    Z = lambda T: np.exp(-0.02 * np.asarray(T))
+    tf = schedule(0, 10, 0.25)
+    expected = (E3M.kappa * Z(tf[:-1]) - Z(tf[1:])).sum() / Z(np.arange(1, 11)).sum()
+    assert e3m.quote(pr) == pytest.approx(expected, rel=1e-14)
+    assert ois.target(SETUP) == SETUP.key("dd") and e3m.target(SETUP) == SETUP.key("ff")
+
+
+def test_fx_forward_outright_and_points():
+    cs = flat_curves()
+    pr = DeterministicPricer(cs)
+    F = 1.1 * np.exp((0.04 - 0.02 + 0.001) * 2.0)
+    assert FXForward(2.0).quote(pr) == pytest.approx(F)
+    assert FXForward(2.0, "points").quote(pr) == pytest.approx((F - 1.1) * 1e4)
+    assert FXForward(2.0, "points", 100.0).quote(pr) == pytest.approx((F - 1.1) * 1e2)
+    assert FXForward(2.0).target(SETUP) == SETUP.key("fd")
+    assert FXForward(2.0).dependencies(SETUP) == {SETUP.key("dd")}
+
+
+def test_resetting_ccs_without_convexity():
+    """DCB: B = sum P_j (P_{j-1}/P_j - kappa_f Zff_{j-1}/Zff_j) / (theta sum P_j)."""
+    cs = flat_curves()
+    pr = DeterministicPricer(cs)
+    ccs = ResettingCCS(5.0)
+    t = schedule(0, 5, 0.25)
+    P, Zf = cs.Z0("fd", t), cs.Z0("ff", t)
+    B = ((P[:-1] / P[1:] - E3M.kappa * Zf[:-1] / Zf[1:]) * P[1:]).sum() / (0.25 * P[1:].sum())
+    assert ccs.quote(pr) == pytest.approx(B, rel=1e-14)
+    assert ccs.priority > FXForward(1.0).priority
+    assert ccs.dependencies(SETUP) == {SETUP.key("ff")}
+
+
+def test_options_need_a_stochastic_model():
+    pr = DeterministicPricer(flat_curves())
+    for inst in (Swaption.make(SOFR, 5, 10), FXOption(5.0), CurrencyBasisSwaption.make(5, 1)):
+        with pytest.raises(NotImplementedError):
+            inst.quote(pr)
+    assert Swaption.make(E3M, 5, 10).target(SETUP) == "f"
+    assert (FXOption(5.0).target(SETUP), CurrencyBasisSwaption.make(5, 1).target(SETUP)) == ("x", "c")
+
+
+def test_market_quotes_selectors():
+    mq = MarketQuotes(SETUP, 1.1, [Quote(Swap(SOFR, 5.0), 0.04), Quote(FXForward(1.0), 1.12),
+                                   Quote(FXOption(1.0), 0.08)])
+    assert len(mq.of_type(Swap, FXForward)) == 2
+    assert [q.value for q in mq.for_target(SETUP.key("fd"))] == [1.12]
+    assert [q.value for q in mq.with_values([1, 2, 3]).quotes] == [1, 2, 3]
+    assert len(mq.without(FXOption).quotes) == 2
