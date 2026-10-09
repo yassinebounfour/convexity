@@ -143,3 +143,55 @@ def test_market_quotes_selectors():
     assert [q.value for q in mq.for_target(SETUP.key("fd"))] == [1.12]
     assert [q.value for q in mq.with_values([1, 2, 3]).quotes] == [1, 2, 3]
     assert len(mq.without(FXOption).quotes) == 2
+
+
+from collateraldiscounting.curve_calibration import calibrate_curves, bootstrap, BootstrapReport, CalibrationError
+
+def linear_quotes(points=False):
+    """Quotes generated from flat_curves(): the bootstrap must give back these curves."""
+    pr = DeterministicPricer(flat_curves())
+    insts = ([Swap(SOFR, T) for T in (1, 2, 5, 10, 30)] + [Swap(E3M, T) for T in (1, 2, 5, 10, 30)]
+             + [FXForward(T, "points" if points else "outright") for T in (0.25, 0.5, 1.0)]
+             + [ResettingCCS(T) for T in (1.0, 2.0, 5.0, 10.0, 30.0)])
+    return MarketQuotes(SETUP, 1.1, [Quote(i, i.quote(pr)) for i in reversed(insts)])   # unsorted on purpose
+
+
+def test_deterministic_bootstrap_recovers_flat_curves():
+    cs, rep = calibrate_curves(linear_quotes())
+    ref = flat_curves()
+    T = np.linspace(0.1, 40, 50)
+    for kind in ("dd", "ff", "fd"):
+        np.testing.assert_allclose(cs.Z0(kind, T), ref.Z0(kind, T), rtol=1e-12)
+    # the 1Y CCS falls inside the FX forward section: reported as a check, not used
+    assert [q.instrument.label for q in rep.checks] == ["resetting CCS 1Y"]
+    pr = DeterministicPricer(cs)
+    for q in rep.used + rep.checks:
+        assert q.instrument.quote(pr) == pytest.approx(q.value, abs=1e-12)
+
+
+def test_points_and_outrights_give_the_same_curve():
+    a, _ = calibrate_curves(linear_quotes(points=False))
+    b, _ = calibrate_curves(linear_quotes(points=True))
+    np.testing.assert_allclose(a.Z0("fd", [0.3, 0.9, 7.0]), b.Z0("fd", [0.3, 0.9, 7.0]), rtol=1e-13)
+
+
+def test_fx_forward_curve_is_model_free():
+    """Z^{f|d}(T) = F(T) Z^{d|d}(T) / x0 at every FX forward pillar."""
+    mq = linear_quotes()
+    cs, _ = calibrate_curves(mq)
+    for q in mq.of_type(FXForward):
+        T = q.instrument.maturity
+        assert cs.Z0("fd", T) == pytest.approx(q.value * cs.Z0("dd", T) / 1.1, rel=1e-13)
+
+
+def test_missing_dependency_is_reported():
+    mq = MarketQuotes(SETUP, 1.1, [Quote(FXForward(1.0), 1.12)])
+    with pytest.raises(ValueError, match="Z\\[USD\\|USD_SOFR\\]"):
+        calibrate_curves(mq)
+
+
+def test_partial_bootstrap_targets_only():
+    mq = linear_quotes()
+    cs = CurveSet(SETUP, 1.1)
+    rep = bootstrap(mq, cs, DeterministicPricer(cs), targets=[SETUP.key("dd"), SETUP.key("ff")])
+    assert set(cs.keys()) == {SETUP.key("dd"), SETUP.key("ff")} and len(rep.used) == 10
