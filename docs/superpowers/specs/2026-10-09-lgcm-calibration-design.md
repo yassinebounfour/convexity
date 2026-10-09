@@ -40,14 +40,46 @@ adjustments, no option targets).
 
 ## Architecture
 
-New modules in `python/collateraldiscounting/`:
+### Market objects: indices, curve keys, instruments, quotes
+
+- **`Index`** (frozen dataclass): `name` (`"USD_SOFR"`, `"EUR_ESTR"`, `"EUR_EURIBOR3M"`),
+  `currency`, `kind` (`OIS` / `IBOR`), `tenor` theta, funding spread (kappa = 1 + theta * spread,
+  1 for OIS). A collateral is identified by its overnight index.
+- **`CurveKey`** (frozen, hashable, abstract) identifies a curve:
+  - `DiscountCurveKey(currency, collateral)`: Z^{EUR|USD_SOFR} = `DiscountCurveKey("EUR", "USD_SOFR")`;
+  - `ForwardCurveKey(index, collateral)`: projection of an IBOR index under a collateral (derived
+    from discount curves, the funding spread and, off native collateral, the Libor convexity).
+- **`CurveSet`**: mapping `CurveKey -> Curve`, with `discount(key, T)`, `fx_spot(pair)` and an
+  adapter `Z0(kind, T)` / `fx_forward0` / `kappa_d` / `kappa_f` for the existing `payoffs.py`,
+  `montecarlo.py` and `gaussian_approx.py` (the role mapping d/f -> currencies and collateral
+  indices comes from an `LGCMSetup(domestic, foreign, domestic_collateral, foreign_collateral)`).
+  Z^{d|f} (`DiscountCurveKey("USD", "EUR_ESTR")`) is a model output, filled after calibration.
+- **`Curve`** implementations: `PiecewiseFlatCurve` (flat instantaneous forwards between pillars,
+  flat extrapolation) and `SpreadCurve(base, spread)` (Z^{f|d} = Z^{f|f} Q with Q piecewise flat:
+  the collateral basis curve is what is bootstrapped, see the interpolation remark in the notes).
+- **`Instrument`** (abstract, pure data): `pillar` (date the instrument determines),
+  `target` (the `CurveKey` or model parameter block it calibrates), `quote(pricer)` (model quote).
+  Concrete: `Swap(index, maturity, fixed_tenor, collateral)`, `FXForward(pair, maturity)`,
+  `ResettingCCS(foreign_index, domestic_index, maturity, collateral)`,
+  `Swaption(expiry, underlying: Swap)`, `FXOption(pair, expiry)`,
+  `CurrencyBasisSwaption(expiry, underlying: ResettingCCS)`.
+- **`Quote(instrument, value, convention)`**: the market value in its convention (par rate, FX
+  outright or points with a pip factor, CB spread, normal vol, Black vol). `MarketQuotes`: FX spots,
+  indices, list of quotes, with selectors by instrument type and target.
+- **`Pricer`** (abstract) gives instruments what they need: `curves`, `libor_convexity(a, b, key)`,
+  and model quantities for options (`swaption_vol`, `fx_vol`, `cb_vol`). `DeterministicPricer(curves)`
+  has K = 1 and raises for options. `LGCMPricer(model, curves, setup)` uses the LGCM closed forms.
+  Linear instruments are priced by the instrument from curves and convexities; options dispatch to
+  the pricer.
+
+### Modules in `python/collateraldiscounting/`
 
 | module | responsibility |
 |---|---|
-| `curves.py` | `PiecewiseFlatCurve` (log discount factor linear between pillars, flat extrapolation of the last forward), `MarketCurves` with the `InitialCurves` interface (`x0`, `kappa_d`, `kappa_f`, `kappa(ccy)`, `Z0(kind, T)` for dd/ff/fd/qz, `fx_forward0`), built from Z^{d\|d}, Z^{f\|f} and the collateral basis curve Q = Z^{f\|d}/Z^{f\|f} |
-| `quotes.py` | quote dataclasses (`IndexSpec`, `SwapQuote`, `FXForwardQuote`, `CBSwapQuote`, `SwaptionQuote`, `FXVolQuote`, `CBVolQuote`), the `MarketQuotes` container, `example_quotes()` (realistic USD/EUR market) |
-| `instruments.py` | model values of every quote type: `swap_rate`, `fx_forward`, `cb_spread`, swaption exact price and implied normal vol (1 factor, closed form), generalised Gaussian swaption variance (any number of factors, fixed and float schedules), `fx_atm_vol`, CB vol (approx and exact) |
-| `curve_calibration.py` | `ConvexityProvider` protocol (`libor_convexity(a, b)` = K seen from 0), `DeterministicConvexity` (K = 1, the DCB model), `LGCMConvexity(model)`; `bootstrap_native_curve(quotes, index)`, `bootstrap_collateral_basis_curve(curves, fx_forwards, cb_swaps, convexity)`; `calibrate_curves(quotes, convexity=DeterministicConvexity())` |
+| `curves.py` | `Index`, `CurveKey`, `DiscountCurveKey`, `ForwardCurveKey`, `Curve`, `PiecewiseFlatCurve`, `SpreadCurve`, `CurveSet`, `LGCMSetup` |
+| `instruments.py` | `Instrument` hierarchy, `Quote`, `MarketQuotes`, `example_quotes()` (realistic USD/EUR market) |
+| `pricers.py` | `Pricer`, `DeterministicPricer`, `LGCMPricer`: swaption exact price and implied normal vol (1 factor, closed form), generalised Gaussian swaption variance (any number of factors, fixed and float schedules), FX ATM vol, CB vol (approx and exact) |
+| `curve_calibration.py` | generic `CurveBootstrapper`: for each target curve, sort its quotes by pillar and solve each pillar node by a 1D root search of `quote(pricer) - market`; `calibrate_curves(quotes, setup, pricer_factory=DeterministicPricer)` |
 | `calibration.py` | `ModelSpec` (factor structure per block: mean reversions and fixed weights, correlation matrix, marked sigma^c), `calibrate(quotes, spec) -> Calibration` (model, curves, diagnostics), the bootstrapping steps, `CalibrationError` |
 | `calibration_check.py` | `analytic_report(cal, quotes)` and `mc_report(cal, quotes, n_paths, seed)`: rows (instrument, market, model, error, stderr) |
 
@@ -62,12 +94,16 @@ Changes to existing modules:
 
 ### Curve calibration abstraction
 
-The curve bootstrap only sees the model through a `ConvexityProvider`. The native curves are
-model-free. The collateral basis curve takes the FX forwards (model-free) up to the last forward
-pillar, then each CB swap pillar beyond it fixes the level of the flat q-forward on its segment by a
-1D root search, with `K_j` from the provider. `calibrate_curves(quotes)` with the default
-`DeterministicConvexity` is the deterministic collateral basis (DCB) market practice; the LGCM passes
-`LGCMConvexity(model)`.
+The curve bootstrap is generic in instruments, curve keys and the model: it only sees quotes
+(instrument + value), the `CurveSet` being built and a `Pricer`. Each linear instrument declares its
+target `CurveKey` and pillar; the bootstrapper processes the target curves in dependency order
+(native discount curves, then Z^{f|d}) and solves each pillar sequentially. The native curves are
+model-free. For Z^{f|d} the FX forwards (model-free) set the collateral basis curve up to the last
+forward pillar; CB swaps beyond it fix one node each, with `K_j` from the pricer.
+`calibrate_curves(quotes, setup)` with the default `DeterministicPricer` is the deterministic
+collateral basis (DCB) market practice and needs no vol quotes; the LGCM passes an `LGCMPricer`. A
+quote whose pillar falls before the last node already fixed on its curve is not used for
+bootstrapping and is reported as a check.
 
 ## Calibration algorithm
 
@@ -83,7 +119,7 @@ expiries; flat extrapolation after the last expiry of each block.
    lambda so the guess is closed form. Refinement by brentq on the exact closed-form price for one
    factor; with several factors the Gaussian approximation is the pricer (flagged in diagnostics).
    Raise `CalibrationError` on a variance squeeze.
-3. **(Q, lambda^c) fixed point**: (a) bootstrap Q with `LGCMConvexity`; (b) if CB vols are given,
+3. **(Q, lambda^c) fixed point**: (a) bootstrap Z^{f|d} (node values of Q) with `LGCMPricer`; (b) if CB vols are given,
    bootstrap lambda^c per CB vol expiry (Gaussian approximation guess, exact 2D quadrature refinement
    when n_f = n_c = 1), else keep the marked sigma^c; repeat until the change in lambda^c and Q is
    below tolerance. Iteration count is reported.
