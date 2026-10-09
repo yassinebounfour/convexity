@@ -107,17 +107,19 @@ class LGCMPricer(Pricer):
     def __init__(self, model, curves, exact=True):
         super().__init__(curves)
         self.model, self.exact = model, exact
-        self._K = {}
+        self._K, self._v = {}, None
 
     def _version(self):
         m = self.model
         return hash(tuple(a.tobytes() for a in m.sig + m.beta) + (m.R.tobytes(),))
 
     def libor_convexity(self, a, b):
-        key = (self._version(), a, b)
-        if key not in self._K:
-            self._K[key] = libor_convexity(self.model, 0.0, a, b)
-        return self._K[key]
+        v = self._version()
+        if v != self._v:
+            self._K, self._v = {}, v
+        if (a, b) not in self._K:
+            self._K[(a, b)] = libor_convexity(self.model, 0.0, a, b)
+        return self._K[(a, b)]
 
     def swaption_normal_vol(self, swaption):
         u = swaption.underlying

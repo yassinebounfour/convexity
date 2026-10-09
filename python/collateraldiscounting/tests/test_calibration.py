@@ -7,8 +7,7 @@ from scipy.stats import norm
 from collateraldiscounting import gaussian_approx as ga
 from collateraldiscounting.lgcm import Model
 from collateraldiscounting.curves import Index, LGCMSetup, CurveSet, PiecewiseFlatCurve, SpreadCurve
-from collateraldiscounting.instruments import (Swap, ResettingCCS, Swaption, FXOption, CurrencyBasisSwaption,
-                                               schedule)
+from collateraldiscounting.instruments import (Swap, ResettingCCS, Swaption, FXOption, CurrencyBasisSwaption)
 from collateraldiscounting.pricers import (LGCMPricer, DeterministicPricer, native_swaption_variance,
                                            native_swaption_exact_vol)
 from collateraldiscounting.market import libor_convexity, fx_total_variance
@@ -99,9 +98,66 @@ def test_lgcm_pricer_convexity_and_fx_vol():
     pr = LGCMPricer(m, cs)
     assert pr.libor_convexity(10.0, 10.25) == libor_convexity(m, 0.0, 10.0, 10.25)
     assert pr.libor_convexity(10.0, 10.25) > 1.0
+    old = pr.libor_convexity(10.0, 10.25)
     m.sig[m.idx["c"][0]][:] *= 2                       # the cache must see model changes
-    assert pr.libor_convexity(10.0, 10.25) == libor_convexity(m, 0.0, 10.0, 10.25)
+    new = pr.libor_convexity(10.0, 10.25)
+    assert new != old and new == libor_convexity(m, 0.0, 10.0, 10.25)
     assert FXOption(5.0).quote(pr) == pytest.approx(np.sqrt(fx_total_variance(m, 5.0) / 5.0), rel=1e-14)
     # LGCM CCS spread differs from the DCB one by the convexity only
     ccs = ResettingCCS(20.0)
     assert ccs.quote(pr) < ccs.quote(DeterministicPricer(cs))
+
+
+def test_lgcm_pricer_swaption_dispatch_both_blocks():
+    """Swaption.quote -> LGCMPricer picks the right block, native curve and T0 normalisation."""
+    m, cs = small_model(), curves()
+    for index, role, kind in ((E3M, "f", "ff"), (SOFR, "d", "dd")):
+        sw = Swaption.make(index, 5.0, 10.0)
+        u = sw.underlying
+        Z = lambda T, kind=kind: cs.Z0(kind, T)
+        (i,) = m.idx[role]
+        assert sw.quote(LGCMPricer(m, cs, exact=True)) == pytest.approx(native_swaption_exact_vol(m, i, u, Z), rel=1e-13)
+        assert sw.quote(LGCMPricer(m, cs, exact=False)) == pytest.approx(
+            np.sqrt(native_swaption_variance(m, [i], u, Z) / u.start), rel=1e-13)
+    # the d and f vols really differ (a wrong block or curve cannot pass by accident)
+    pr = LGCMPricer(m, cs)
+    assert abs(Swaption.make(E3M, 5.0, 10.0).quote(pr) / Swaption.make(SOFR, 5.0, 10.0).quote(pr) - 1) > 0.01
+
+
+def two_factor_f_model():
+    knots = [0, 1, 3, 7, 15, 60]
+    n = len(knots) - 1
+    ramp = np.linspace(1.0, 0.8, n)
+    # drivers: d, f1, f2, c, FX
+    R = np.array([[1, .3, .2, -.2, .25], [.3, 1, .5, -.4, .3], [.2, .5, 1, -.1, .1],
+                  [-.2, -.4, -.1, 1, .35], [.25, .3, .1, .35, 1]])
+    return Model(knots, [("d", 0.009 * ramp, np.full(n, 0.03)), ("f", 0.008 * ramp, np.full(n, 0.02)),
+                         ("f", 0.005 * ramp, np.full(n, 0.15)), ("c", 0.003 * ramp, np.full(n, 0.10))],
+                 R, 0.08 * ramp)
+
+
+def test_multifactor_gaussian_variance_vs_brute_force_and_pricer_fallback():
+    m, cs = two_factor_f_model(), curves()
+    swap = Swap(E3M, 15.0, 1.0, 5.0)
+    Z = lambda T: cs.Z0("ff", T)
+    T0 = swap.start
+    tf, cf, tx, wx = swap.cashflows()
+    fl, A = swap.legs(Z)
+    K = fl / A
+    t, c = np.r_[tf, tx], np.r_[cf, -K * wx]
+    P = Z(t) / Z(T0)
+    fac = m.idx["f"]
+    assert len(fac) == 2
+    # explicit loadings: dS/dz_i = -sum_m c_m P_m G_i(T0, t_m) / A with G by quadrature of M
+    Gq = lambda i, T: quad(lambda v: m.M(i, T0, v), T0, T, epsabs=1e-14, epsrel=1e-13,
+                           points=[k for k in m.knots if T0 < k < T] or None)[0]
+    q = np.array([-(c * P * np.array([Gq(i, T) for T in t])).sum() / (A / Z(T0)) for i in fac])
+    y = np.array([[m.covint_brute((i, "M", T0), (j, "M", T0), 0.0, T0) for j in fac] for i in fac])
+    assert abs(y[0, 1]) > 0.1 * np.sqrt(y[0, 0] * y[1, 1])            # the cross term matters
+    V = float(q @ y @ q)
+    assert native_swaption_variance(m, fac, swap, Z) == pytest.approx(V, rel=1e-8)
+    # the cross term is not negligible: dropping it changes the answer
+    assert abs((q ** 2 * np.diag(y)).sum() / V - 1) > 1e-3
+    sw = Swaption.make(E3M, 5.0, 10.0)
+    for exact in (True, False):
+        assert sw.quote(LGCMPricer(m, cs, exact=exact)) == pytest.approx(np.sqrt(V / T0), rel=1e-8)
