@@ -35,6 +35,17 @@ class SimResult:
         return self.z.shape[0]
 
 
+class PathStates(dict):
+    """SimResult by date, the same paths at every date. states(t) looks the date up rounded to 1e-10."""
+
+    @staticmethod
+    def key(t):
+        return round(float(t), 10)
+
+    def __call__(self, t):
+        return self[self.key(t)]
+
+
 class MCScheme(ABC):
     """Base class: time grid and (antithetic) Gaussian draws."""
 
@@ -57,6 +68,10 @@ class MCScheme(ABC):
     @abstractmethod
     def simulate(self, sim, T, n_paths, rng, antithetic) -> SimResult:
         """Simulate the state of `sim` (a Simulator) from 0 to T."""
+
+    def simulate_dates(self, sim, dates, n_paths, rng, antithetic) -> PathStates:
+        """Joint state at every date of `dates` along the same paths."""
+        raise NotImplementedError(f"{type(self).__name__} does not record intermediate dates")
 
 
 class EulerScheme(MCScheme):
@@ -144,3 +159,36 @@ class ExactScheme(MCScheme):
         Yd = np.broadcast_to(m.Y(T), (P, nr, nr))
         vd = np.broadcast_to(m.vfc(T), (P, nr))
         return SimResult(T, X[:, :nr], X[:, ixs["iZX"]], Yd, vd, X[:, ixs["iID"]], X[:, ixs["iIQ"]], antithetic)
+
+    def simulate_dates(self, sim, dates, P, rng, antithetic):
+        """Joint state at every date of `dates` (>= 0) along the same paths. The grid is the grid of
+        `simulate` up to the last date refined with the dates; the transitions are exact, so the law
+        at each date is that of `simulate` and the joint law is that of the Gaussian Markov state."""
+        if not sim.is_lgcm:
+            raise ValueError("the exact scheme only applies to the LGCM (kappa = 0)")
+        m, nr = sim.m, sim.m.nr
+        dates = np.unique(np.asarray(dates, float))
+        if dates[0] < 0:
+            raise ValueError("dates must be >= 0")
+        want = {PathStates.key(t) for t in dates}
+        g = self.grid(m, max(dates[-1], 1e-10))
+        near = np.abs(g[:, None] - dates[None, :]).min(1) < 1e-10      # grid points that are dates up to 1e-10
+        g = np.union1d(g[~near], dates)
+        g = g[np.concatenate([[True], np.diff(g) > 1e-10])]
+        X = np.zeros((P, nr + 4))
+        out = PathStates()
+
+        def record(t, X):
+            Yd = np.broadcast_to(m.Y(t), (P, nr, nr))
+            vd = np.broadcast_to(m.vfc(t), (P, nr))
+            out[PathStates.key(t)] = SimResult(float(t), X[:, :nr].copy(), X[:, nr].copy(), Yd, vd,
+                                               X[:, nr + 1].copy(), X[:, nr + 2].copy(), antithetic)
+        if 0.0 in want:
+            record(0.0, X)
+        for t0, t1 in zip(g[:-1], g[1:]):
+            F, mu, C, ixs = transitions.transition(m, t0, t1, "RN")
+            w, U = np.linalg.eigh(C)                 # C may be singular (no noise on L)
+            X = X @ F.T + mu + self.normals(rng, P, ixs["n"], antithetic) @ (U * np.sqrt(np.clip(w, 0, None))).T
+            if PathStates.key(t1) in want:
+                record(t1, X)
+        return out

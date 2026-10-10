@@ -262,3 +262,58 @@ def test_cb_vols_not_moved_by_later_expiries(cal):
     pr = cal.pricer()
     for q in MQ.of_type(CurrencyBasisSwaption):
         assert q.instrument.quote(pr) == pytest.approx(q.value, abs=1e-14), q.instrument.label
+
+
+# ---------------------------------------------------------------------- Task 6: repricing checks
+from collateraldiscounting.montecarlo import Simulator, cv_mean_and_stderr, mean_and_stderr
+from collateraldiscounting.schemes import ExactScheme
+from collateraldiscounting.calibration_check import analytic_report, mc_report
+
+
+def test_simulate_dates_martingales(cal):
+    sim = Simulator(cal.model, scheme=ExactScheme(0.25))
+    st = sim.simulate_dates([0.0, 2.0, 5.0], 2**14, seed=5)
+    assert st(0.0).z.shape == (2**14, cal.model.nr) and np.all(st(0.0).z == 0)
+    for T in (2.0, 5.0):
+        for ccy, col, kind in (("d", "d", "dd"), ("f", "d", "fd"), ("f", "f", "ff")):
+            D = sim.deflator(st(T), cal.curves, ccy, col)
+            mu, se = mean_and_stderr(D)
+            assert abs(mu - cal.curves.Z0(kind, T)) < 4 * se
+
+
+def test_simulate_dates_single_date_is_simulate(cal):
+    """Same grid and same draws: simulate_dates([T]) reproduces simulate(T) path by path."""
+    sim = Simulator(cal.model, scheme=ExactScheme(0.25))
+    T = 5.0
+    a, b = sim.simulate(T, 2**8, seed=3), sim.simulate_dates([T], 2**8, seed=3)(T)
+    for name in ("z", "zx", "Id", "Iq", "Y", "v"):
+        np.testing.assert_allclose(getattr(b, name), getattr(a, name), rtol=1e-12, atol=1e-15)
+
+
+def test_cv_mean_and_stderr_reduces_variance():
+    rng = np.random.default_rng(0)
+    c = rng.standard_normal(2**12)
+    x = 1.0 + 2.0 * c + 0.1 * rng.standard_normal(2**12)
+    mu, se = cv_mean_and_stderr(x, [c], [0.0], antithetic=False)
+    assert abs(mu - 1.0) < 4 * se and se < 0.01
+
+
+def test_analytic_report(cal):
+    rows = analytic_report(cal)
+    assert len(rows) == len(MQ.quotes)
+    assert max(abs(r.error) for r in rows if r.kind not in ("FXForward",)) < 1e-10
+    cb = [r for r in rows if r.kind == "CurrencyBasisSwaption"]
+    # Gaussian approximation gaps (measured on the example market: CB vols |gap| <= 5.7e-5, swaptions
+    # +2.9e-4 .. +5.4e-3, increasing with the expiry)
+    assert all(abs(r.approx / r.model - 1) < 2e-4 for r in cb)
+    sw = [r for r in rows if r.kind == "Swaption"]
+    assert all(0 < r.approx / r.model - 1 < 1e-2 for r in sw)
+
+
+@pytest.mark.slow
+def test_mc_report_within_4_stderr(cal):
+    qs = [q for q in MQ.quotes if q.instrument.pillar <= 10.0 and not (
+        isinstance(q.instrument, Swaption) and q.instrument.expiry > 5)]
+    rows = mc_report(cal, n_paths=2**15, seed=11, quotes=qs)
+    bad = [(r.label, r.market, r.model, r.stderr) for r in rows if not abs(r.z) < 4]
+    assert not bad, bad
