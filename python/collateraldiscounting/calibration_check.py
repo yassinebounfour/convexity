@@ -7,8 +7,11 @@ mc_report        every quote repriced by Monte Carlo under Q^{d,RN} with the exa
                  value of V_T in ccy under a collateral is E[D V_T]).
 
 Conventions of the Monte Carlo values (column `model`, same quotation as the market quote):
-* linear instruments: the par quote whose value is E[D x payoff]; the error is MC noise only if the
-  closed forms (curves, Libor collateral convexities) are the model's.
+* swaps and FX forwards: the MC checks only the martingale property of the deflators against the
+  curves (E[D_t] = Z_{0,t}, E[D x_T] = Z x^{fwd}); they do not test the calibrated vols. Their closed
+  forms are repriced analytically to ~1e-16 (analytic_report).
+* resetting CCS: tests the Libor collateral convexity K_{0,j} of the pricer against the model's
+  dynamics (a K = 1 spread is rejected by many standard errors).
 * swaptions and CB vols: the quoted "normal vol" of the pricer is a *price*, price / (A0 sqrt(T0/2pi))
   (exact one factor price, resp. exact 2D quadrature under the annuity measure), not a Gaussian
   variance. The MC straddle price is mapped by the same linear map, so the comparison is a price
@@ -19,7 +22,7 @@ Conventions of the Monte Carlo values (column `model`, same quotation as the mar
 Every control variate has a mean that is an exact no-arbitrage identity of the model (stated at each use).
 """
 from dataclasses import dataclass
-from math import nan, pi, sqrt
+from math import copysign, inf, nan, pi, sqrt
 import time
 
 import numpy as np
@@ -46,6 +49,9 @@ class CheckRow:
 
     @property
     def z(self):
+        """error / stderr; +-inf for a nonzero error with stderr 0, nan for 0 / 0 or without stderr."""
+        if self.stderr == 0:
+            return copysign(inf, self.error) if self.error != 0 else nan
         return self.error / self.stderr
 
 
@@ -72,7 +78,7 @@ def _dates(inst, setup):
 
 
 def _swap(sim, st, cal, q):
-    """Native swap, collateral e: float leg sum_m c_m Z^{e|e}_{0,t_m} (kappa at t_{i-1}, -1 at t_i),
+    """Deflator / curve martingale check (no vol dependence). Native swap, collateral e: float leg sum_m c_m Z^{e|e}_{0,t_m} (kappa at t_{i-1}, -1 at t_i),
     fixed leg sum_k w_k Z_{0,t_k}. Value at the market rate: E[sum c_m D_{t_m} - S sum w_k D_{t_k}]
     with E[D^{e|e}_t] = Z^{e|e}_{0,t}; par = S + value / A0."""
     u, role = q.instrument, cal.curves.setup.role(q.instrument.index.currency)
@@ -85,7 +91,8 @@ def _swap(sim, st, cal, q):
 
 
 def _fx_forward(sim, st, cal, q):
-    """E[D^{d|d}_T (x_T - F)] = Z^{d|d}_{0,T} (x^{df|d}_{0,T} - F)."""
+    """Deflator / curve martingale check (no vol dependence): E[D^{d|d}_T (x_T - F)] =
+    Z^{d|d}_{0,T} (x^{df|d}_{0,T} - F)."""
     inst, T = q.instrument, q.instrument.maturity
     res, c = st(T), cal.curves
     F_mkt = q.value if inst.quotation == "outright" else c.x0 + q.value / inst.pip_factor
@@ -157,12 +164,12 @@ def _fx_option(sim, st, cal, q):
     return vol, se / vega
 
 
-def _cb_vol(sim, st, cal, q):
-    """Option on the forward resetting CB spread B_{T0}, in f units under d collateral. With the
-    annuity A_{T0} = theta sum_j Z^{f|d}_{T0,T_j} and 1 + theta L^{f|d}_{T0,j} = kappa^f Z^{f|f}_{T0,j-1} /
-    Z^{f|f}_{T0,j} K_{T0,j} (Libor collateral convexity seen from T0), A B is the value of a tradable,
-    so E[D^{f|d}_{T0} A (B - B0)] = 0 with B0 the time-0 spread (the pricer's, Libor convexities K_{0,j})
-    and the ATM straddle is A0 E^A[(B - B0)^+], the price behind the exact (2D quadrature) CB vol."""
+def cb_straddle_inputs(sim, st, cal, q):
+    """Pathwise inputs of the CB-vol check at T0: (D, AB - A B0, A0, T0) with D = D^{f|d}_{T0}.
+    A_{T0} = theta sum_j Z^{f|d}_{T0,T_j} and 1 + theta L^{f|d}_{T0,j} = kappa^f Z^{f|f}_{T0,j-1} /
+    Z^{f|f}_{T0,j} K_{T0,j} (Libor collateral convexity seen from T0, libor_convexity(m, T0, a, b)).
+    A B is the value of a tradable, so E[D (AB - A B0)] = 0 with B0 the time-0 spread of the pricer
+    (convexities K_{0,j}); this control-mean identity is checked by the tests."""
     c, s, m = cal.curves, cal.curves.setup, cal.model
     u = q.instrument.underlying
     T0, Tj, th = u.start, u.schedule(s), s.foreign_index.tenor
@@ -177,7 +184,14 @@ def _cb_vol(sim, st, cal, q):
     AB = ((one_Lr - one_L) * P[:, 1:]).sum(1)
     B0 = u.quote(cal.pricer())
     A0 = th * c.Z0("fd", Tj[1:]).sum()
-    return _straddle_vol(sim.deflator(res, c, "f", "d"), AB - A * B0, A0, T0)
+    return sim.deflator(res, c, "f", "d"), AB - A * B0, A0, T0
+
+
+def _cb_vol(sim, st, cal, q):
+    """Option on the forward resetting CB spread B_{T0}, in f units under d collateral: the ATM straddle
+    0.5 E[D A |B - B0|] = A0 E^A[(B - B0)^+] is the price behind the exact (2D quadrature) CB vol
+    (see cb_straddle_inputs for the zero-mean control D A (B - B0))."""
+    return _straddle_vol(*cb_straddle_inputs(sim, st, cal, q))
 
 
 _MC = {Swap: _swap, FXForward: _fx_forward, ResettingCCS: _ccs, Swaption: _swaption, FXOption: _fx_option,

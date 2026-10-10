@@ -163,30 +163,34 @@ class ExactScheme(MCScheme):
     def simulate_dates(self, sim, dates, P, rng, antithetic):
         """Joint state at every date of `dates` (>= 0) along the same paths. The grid is the grid of
         `simulate` up to the last date refined with the dates; the transitions are exact, so the law
-        at each date is that of `simulate` and the joint law is that of the Gaussian Markov state."""
+        at each date is that of `simulate` and the joint law is that of the Gaussian Markov state.
+        The state layout (z, z^x, int r^d, int q) is read from the indices of transitions.transition."""
         if not sim.is_lgcm:
             raise ValueError("the exact scheme only applies to the LGCM (kappa = 0)")
-        m, nr = sim.m, sim.m.nr
         dates = np.unique(np.asarray(dates, float))
+        if dates.size == 0:
+            raise ValueError("simulate_dates needs at least one date")
         if dates[0] < 0:
             raise ValueError("dates must be >= 0")
+        m, nr = sim.m, sim.m.nr
         want = {PathStates.key(t) for t in dates}
         g = self.grid(m, max(dates[-1], 1e-10))
         near = np.abs(g[:, None] - dates[None, :]).min(1) < 1e-10      # grid points that are dates up to 1e-10
         g = np.union1d(g[~near], dates)
         g = g[np.concatenate([[True], np.diff(g) > 1e-10])]
-        X = np.zeros((P, nr + 4))
+        steps = [transitions.transition(m, t0, t1, "RN") for t0, t1 in zip(g[:-1], g[1:])]
+        ixs = steps[0][3]
+        X = np.zeros((P, ixs["n"]))
         out = PathStates()
 
         def record(t, X):
             Yd = np.broadcast_to(m.Y(t), (P, nr, nr))
             vd = np.broadcast_to(m.vfc(t), (P, nr))
-            out[PathStates.key(t)] = SimResult(float(t), X[:, :nr].copy(), X[:, nr].copy(), Yd, vd,
-                                               X[:, nr + 1].copy(), X[:, nr + 2].copy(), antithetic)
+            out[PathStates.key(t)] = SimResult(float(t), X[:, :nr].copy(), X[:, ixs["iZX"]].copy(), Yd, vd,
+                                               X[:, ixs["iID"]].copy(), X[:, ixs["iIQ"]].copy(), antithetic)
         if 0.0 in want:
             record(0.0, X)
-        for t0, t1 in zip(g[:-1], g[1:]):
-            F, mu, C, ixs = transitions.transition(m, t0, t1, "RN")
+        for t1, (F, mu, C, _) in zip(g[1:], steps):
             w, U = np.linalg.eigh(C)                 # C may be singular (no noise on L)
             X = X @ F.T + mu + self.normals(rng, P, ixs["n"], antithetic) @ (U * np.sqrt(np.clip(w, 0, None))).T
             if PathStates.key(t1) in want:

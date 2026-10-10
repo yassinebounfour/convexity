@@ -310,10 +310,83 @@ def test_analytic_report(cal):
     assert all(0 < r.approx / r.model - 1 < 1e-2 for r in sw)
 
 
+from collateraldiscounting.calibration_check import CheckRow, cb_straddle_inputs
+
+MC_SUBSET = [q for q in MQ.quotes if q.instrument.pillar <= 10.0 and not (
+    isinstance(q.instrument, Swaption) and q.instrument.expiry > 5)]
+# Relative standard errors se / |market| at 2^15 paths, seed 11 (measured max per kind x ~3): an
+# inflated s.e. (wrong antithetic pairing, degenerate regression) must fail, not pass with small z.
+MAX_REL_SE = {"Swap": 4.5e-3, "FXForward": 4.5e-3, "ResettingCCS": 4e-3, "Swaption": 1.6e-2,
+              "FXOption": 1.7e-2, "CurrencyBasisSwaption": 1.6e-2}
+
+
+@pytest.fixture(scope="module")
+def mc_rows(cal):
+    return mc_report(cal, n_paths=2**15, seed=11, quotes=MC_SUBSET)
+
+
 @pytest.mark.slow
-def test_mc_report_within_4_stderr(cal):
-    qs = [q for q in MQ.quotes if q.instrument.pillar <= 10.0 and not (
-        isinstance(q.instrument, Swaption) and q.instrument.expiry > 5)]
-    rows = mc_report(cal, n_paths=2**15, seed=11, quotes=qs)
-    bad = [(r.label, r.market, r.model, r.stderr) for r in rows if not abs(r.z) < 4]
+def test_mc_report_within_4_stderr(mc_rows):
+    bad = [(r.label, r.market, r.model, r.stderr) for r in mc_rows if not abs(r.z) < 4]
     assert not bad, bad
+
+
+@pytest.mark.slow
+def test_mc_report_stderr_bounded(mc_rows):
+    assert {r.kind for r in mc_rows} == set(MAX_REL_SE)
+    bad = [(r.label, r.stderr / abs(r.market)) for r in mc_rows
+           if not 0 < r.stderr < MAX_REL_SE[r.kind] * abs(r.market)]
+    assert not bad, bad
+
+
+@pytest.mark.slow
+def test_mc_rejects_missing_collateral_convexity(cal, mc_rows):
+    """Negative control: the DCB spreads (K = 1) on the calibrated curves are far outside the MC error
+    bars (measured 19.7, 26.1, 35.6 s.e. at 5Y, 7Y, 10Y), so the CCS check detects the convexity."""
+    dcb = DeterministicPricer(cal.curves)
+    rows = {r.label: r for r in mc_rows}
+    for T in (5.0, 7.0, 10.0):
+        inst = ResettingCCS(T)
+        r = rows[inst.label]
+        assert abs(inst.quote(dcb) - r.model) / r.stderr > 10, inst.label
+
+
+@pytest.mark.slow
+def test_mc_rejects_gaussian_swaption_approximation(cal):
+    """Negative control at long expiries: the Gaussian approximation of the USD 15Yx10Y and 20Yx10Y vols
+    (+4.6e-3, +5.4e-3 relative) lies > 4 s.e. from the MC (measured 7.8, 7.0 s.e. at 2^18 paths, seed 3),
+    while the exact vols are within 4 s.e."""
+    qs = [q for q in MQ.quotes if isinstance(q.instrument, Swaption) and q.instrument.expiry >= 15
+          and q.instrument.underlying.index.currency == "USD"]
+    assert len(qs) == 2
+    rows = mc_report(cal, n_paths=2**18, seed=3, quotes=qs)
+    apx = cal.pricer(exact=False)
+    for r, q in zip(rows, qs):
+        assert abs(r.z) < 4, r.label
+        assert (q.instrument.quote(apx) - r.model) / r.stderr > 4, r.label
+
+
+@pytest.mark.slow
+def test_cb_vol_control_has_zero_mean(cal):
+    """The control D (AB - A B0) of the CB-vol straddle (K_{T0,j} at T0, B0 with K_{0,j}) has mean 0."""
+    from collateraldiscounting.instruments import CurrencyBasisSwaption as CBS
+    qs = [q for q in MC_SUBSET if isinstance(q.instrument, CBS)]
+    sim = Simulator(cal.model, scheme=ExactScheme(0.25))
+    st = sim.simulate_dates(sorted({q.instrument.expiry for q in qs}), 2**15, seed=11)
+    for q in qs:
+        D, V, A0, T0 = cb_straddle_inputs(sim, st, cal, q)
+        mu, se = mean_and_stderr(D * V)
+        assert abs(mu) < 4 * se, q.instrument.label
+
+
+def test_check_row_z_without_stderr():
+    assert CheckRow("a", "k", 1.0, 1.5, 0.0).z == np.inf
+    assert CheckRow("a", "k", 1.0, 0.5, 0.0).z == -np.inf
+    assert np.isnan(CheckRow("a", "k", 1.0, 1.0, 0.0).z)
+    assert np.isnan(CheckRow("a", "k", 1.0, 1.5).z)
+    assert CheckRow("a", "k", 1.0, 1.5, 0.25).z == pytest.approx(2.0)
+
+
+def test_simulate_dates_rejects_empty(cal):
+    with pytest.raises(ValueError, match="at least one date"):
+        Simulator(cal.model, scheme=ExactScheme(0.25)).simulate_dates([], 2**4)
