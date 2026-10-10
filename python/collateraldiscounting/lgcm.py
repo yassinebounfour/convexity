@@ -23,6 +23,8 @@ from math import factorial
 from numpy.polynomial.legendre import leggauss
 
 GL_X, GL_W = leggauss(64)
+_PHI2_K = np.arange(30)
+_PHI2_C = np.array([[1.0 / (factorial(m + 1) * factorial(n + 1) * (m + n + 3)) for n in range(30)] for m in range(30)])
 
 
 # ---------------------------------------------------------------- scalar kernels
@@ -44,9 +46,8 @@ def Phi1(b, D):
 def Phi2(a, b, D):
     """int_0^D E(a,s) E(b,s) ds."""
     if max(abs(a), abs(b)) * D < 0.5:
-        return sum((-a) ** m * (-b) ** n * D ** (m + n + 3)
-                   / (factorial(m + 1) * factorial(n + 1) * (m + n + 3))
-                   for m in range(30) for n in range(30))
+        # sum_{m,n<30} (-a)^m (-b)^n D^{m+n+3} / ((m+1)! (n+1)! (m+n+3)), as u^T C v
+        return D ** 3 * float(np.power(-a * D, _PHI2_K) @ _PHI2_C @ np.power(-b * D, _PHI2_K))
     if min(abs(a), abs(b), abs(a + b)) * D > 0.05:
         return (D - E(a, D) - E(b, D) + E(a + b, D)) / (a * b)
     s = 0.5 * D * (GL_X + 1)
