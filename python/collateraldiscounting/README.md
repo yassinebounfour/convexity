@@ -1,10 +1,14 @@
 # Linear Gaussian Collateral Model — numerical companion
 
 Checks of the derivations in `docs/CollateralDiscounting.tex` (Quasi-Gaussian and Linear Gaussian
-Collateral Models). Run from `python/`:
+Collateral Models), and the calibration of the LGCM to market quotes.
+
+Environment (from the repository root): `conda env create -f environment.yml` (Python 3.12), or
+`pip install -r requirements.txt` in an existing environment. Run the tests from `python/`:
 
 ```
-python -m pytest collateraldiscounting -q
+python -m pytest collateraldiscounting -q                  # full suite (~1 min)
+python -m pytest collateraldiscounting -q -m "not slow"    # without the Monte Carlo repricing tests
 ```
 
 | file | contents |
@@ -21,6 +25,16 @@ python -m pytest collateraldiscounting -q
 | `tests/test_lgcm.py` | the checks quoted in the verification remarks of the notes |
 | `tests/test_montecarlo.py` | reduced Monte Carlo checks (4 standard error tolerance, fixed seeds) |
 | `tests/test_payoffs.py` | Monte Carlo prices of all payoffs against LGCM closed forms, model-free prices in the QGCM, put-call parities |
+| `curves.py` | `Index` (OIS or IBOR with funding spread, kappa = 1 + theta s), curve keys `DiscountCurveKey(currency, collateral)` / `ForwardCurveKey`, `PiecewiseFlatCurve`, `SpreadCurve` (Z^{f\|d} = Z^{f\|f} x collateral basis curve), `FunctionCurve`, `LGCMSetup` (roles d, f and collateral indices), `CurveSet` (duck-type compatible with `InitialCurves`) |
+| `instruments.py` | calibration instruments (pure data): `Swap`, `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`; `Quote`, `MarketQuotes` |
+| `pricers.py` | `DeterministicPricer` (DCB: K = 1, no options), `LGCMPricer` (Libor convexities, exact one factor swaption, Gaussian swaption variance with separate fixed/float schedules, FX vol, CB vol exact and Gaussian) |
+| `curve_calibration.py` | generic sequential curve bootstrap with a convexity provider; `calibrate_curves(quotes)` is the DCB market practice |
+| `calibration.py` | `ModelSpec`, `BlockSpec`, `default_spec`, `calibrate(quotes, spec) -> Calibration`: Algorithm "LGCM calibration" of the notes |
+| `market_data.py` | `example_setup()`, `example_quotes()`: illustrative USD (SOFR) / EUR (ESTR, EURIBOR 3M) market, not live data |
+| `calibration_check.py` | `analytic_report(cal)` and `mc_report(cal, n_paths, seed)`: every quote repriced in closed form and by Monte Carlo (rows with market, model, error, standard error) |
+| `schemes.py` (`ExactScheme.simulate_dates`, `Simulator.simulate_dates`) | the LGCM state at every date of a grid along the same paths, in one pass |
+| `tests/test_curves.py` | curves, instruments and the deterministic curve bootstrap |
+| `tests/test_calibration.py` | LGCM pricer, calibration and repricing checks (the Monte Carlo ones are marked `slow`) |
 
 ## What is checked
 
@@ -34,10 +48,52 @@ python -m pytest collateraldiscounting -q
 | Lemma on the law of ẑ under Q^{f\|d,T0} | `test_zhat_is_centred_with_covariance_yhat_under_forward_measure` | exponential tilt of the RN law |
 | Gaussian approximations | `test_gaussian_approximations_and_convergence_order`, `test_single_swaplet_loadings` | exact quadrature; error O(λ²) under vol scaling λ (measured, not proved) |
 | Proposition "Consistent families" | `test_consistent_exponential_families` | sympy |
+| Proposition "Model-free curves", Algorithm "Curve bootstrap with a convexity provider" | `test_deterministic_bootstrap_recovers_flat_curves`, `test_fx_forward_curve_is_model_free`, `test_points_and_outrights_give_the_same_curve`, `test_partial_bootstrap_targets_only` | flat curves recovered exactly; Z^{f\|d} up to the last FX forward identical with and without convexity |
+| Proposition "Exact one factor swaption" | `test_native_swaption_exact_closed_form_matches_quadrature`, `test_lgcm_pricer_swaption_dispatch_both_blocks` | adaptive quadrature of E[V^+] (rel. 1e-9) |
+| Proposition "Gaussian swaption variance with separate fixed and floating schedules" | `test_gaussian_swaption_variance_converges_to_exact`, `test_gaussian_variance_matches_gaussian_approx_native`, `test_multifactor_gaussian_variance_vs_brute_force_and_pricer_fallback` | exact price: error O(λ²) (measured ratios 4.0002, 4.0010, not proved); `gaussian_approx.approx_native` (1e-12); quadrature loadings (1e-8) |
+| Resetting CB spread with Libor convexity K_j, FX vol | `test_resetting_ccs_without_convexity`, `test_lgcm_pricer_ccs_and_cb_vol_match_gaussian_approx`, `test_lgcm_pricer_convexity_and_fx_vol` | `gaussian_approx` (independent code), `market.libor_convexity`, `fx_total_variance` |
+| Algorithm "LGCM calibration" | `test_calibration_reprices_all_quotes`, `test_round_trip_recovers_parameters`, `test_input_order_does_not_matter`, `test_cb_vols_not_moved_by_later_expiries`, `test_two_factor_domestic_block` | all 65 quotes repriced (measured max errors 2e-16, FX forwards 1.4e-12 pips); round trip to 1e-8; fixed point in 5 iterations |
+| DCB limit, collateral convexity of the curves | `test_dcb_limit`, `test_collateral_convexity_moves_the_long_end` | sigma^c = 0 gives the DCB curve (1e-14) |
+| Variance squeeze (Proposition "Calibration constraints") | `test_variance_squeeze_raises`, `test_duplicate_expiry_raises` | `CalibrationError` |
+| Remark "Verification" (analytic) | `test_analytic_report`, `test_check_row_z_without_stderr` | Gaussian gaps: swaptions 0 < approx/exact - 1 < 1e-2, CB vols < 2e-4 |
+| Remark "Verification" (Monte Carlo, `slow`) | `test_mc_report_within_4_stderr`, `test_mc_report_stderr_bounded`, `test_mc_rejects_missing_collateral_convexity`, `test_mc_rejects_gaussian_swaption_approximation`, `test_cb_vol_control_has_zero_mean` | 4 s.e. with fixed seeds; negative controls: K = 1 CCS spread > 10 s.e. away (measured 19.7 / 26.1 / 35.6 at 5 / 7 / 10Y), Gaussian swaption > 4 s.e. away (7.8 / 7.0 at USD 15Y / 20Y x 10Y) |
+| `simulate_dates` | `test_simulate_dates_martingales`, `test_simulate_dates_single_date_is_simulate`, `test_simulate_dates_rejects_empty`, `test_cv_mean_and_stderr_reduces_variance` | martingale identities; path-by-path equality with `simulate` (1e-12) |
 
 The test model (`default_model`) has two domestic factors, one foreign factor, one collateral
 basis factor and the FX factor. Its parameters are piecewise constant, with zero, 1e-7 and
 negative mean reversions on some intervals, and it uses a full 5×5 correlation matrix.
+
+## Calibration
+
+`calibration.calibrate` implements Algorithm "LGCM calibration" of the notes: native curves from swaps;
+lambda^d, lambda^f from ATM swaptions (exact one factor price); a fixed point between the Z^{f|d} curve
+(FX forwards and resetting CCS with the LGCM Libor convexities) and lambda^c (CB vols, exact 2D
+quadrature); sigma^x from ATM FX vols in closed form. Mean reversions, correlations and factor weights
+are marked (`ModelSpec`). Run from `python/`:
+
+```python
+from collateraldiscounting.market_data import example_quotes
+from collateraldiscounting.calibration import calibrate
+from collateraldiscounting.calibration_check import analytic_report, mc_report
+from collateraldiscounting.curve_calibration import calibrate_curves
+from collateraldiscounting.instruments import Swaption, FXOption, CurrencyBasisSwaption
+
+cal = calibrate(example_quotes())                # ~7 s; cal.model, cal.curves, cal.diagnostics
+rows = analytic_report(cal)                      # every quote repriced in closed form
+rows_mc = mc_report(cal, n_paths=2**17, seed=7)  # ~6 s; each row has a standard error
+cal.levels("c")                                  # knots and lambda^c
+
+# DCB market practice: curves only, no vols, no convexity
+dcb, report = calibrate_curves(example_quotes().without(Swaption, FXOption, CurrencyBasisSwaption))
+```
+
+Measured on the example market: 5 fixed point iterations, 7.0 s; max analytic repricing error 2.3e-16
+(FX forwards 1.45e-12 pips); Monte Carlo (2^17 paths, seed 7) all 65 quotes within 4 s.e., max |z| = 2.22.
+The 30Y Z^{f|d} zero rate of the LGCM is 3.75 bp above the DCB one calibrated to the same quotes.
+
+The marimo notebook `python/notebooks/lgcm_calibration.py` shows the calibration results, the
+repricing tables, the impact of the marked parameters and the collateral convexity. From the
+repository root: `marimo edit python/notebooks/lgcm_calibration.py` (or `marimo run` for the app view).
 
 ## Monte Carlo verification
 

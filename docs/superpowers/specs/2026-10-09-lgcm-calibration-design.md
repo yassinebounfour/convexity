@@ -88,7 +88,8 @@ Changes to existing modules:
 - `schemes.py`: `ExactScheme.simulate_dates(sim, dates, ...)` returning the state at every date of a
   grid in one pass (transitions computed once).
 - `montecarlo.py`: `Simulator.simulate_dates`.
-- `payoffs.py`: `CurrencyBasisSwaption` (value `A (omega (B - K))^+` in f under d collateral).
+- Monte Carlo valuation of the calibration instruments lives in `calibration_check.py` (no new payoff
+  class in `payoffs.py`).
 
 `InitialCurves` stays as it is (the existing tests use it); `MarketCurves` is duck-type compatible.
 
