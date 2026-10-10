@@ -3173,56 +3173,196 @@ The transitions only involve the initial curves through $Z_{0,s,t}$ at simulatio
 \setcounter{subsection}{-1}
 \subsection{Introduction}
 
-\subsubsection{Single currency market}% 
-The model incorporates a Linear Gaussian Model for each currency. This sub-model is meant to price instruments with native collateral. 
+\subsubsection{Single currency market}%
+The model incorporates a Linear Gaussian Model for each currency. This sub-model is meant to price instruments with native collateral.
 
 In practice, this means that for each currency, we have an embedded single currency LGM which can be calibrated independently to its native IR market:
 \begin{enumerate}
-\item Native discount $Z^{x|x}_{t,T}$  and index curves  $L^{x|x}_{t,T;\theta}$ can be built by any standard method (independently of volatilities\footnote{Spot volatilities are included in Future convexity adjustments but they do not require a very precise calibration of the volatility so these convexity adjustments are typically marked externally if not hardcoded. Conversely, the values of the futures in the curve building have almost no impact on the volatilities calibrated to swaption vols.}). 
+\item Native discount $Z^{x|x}_{t,T}$  and index curves  $L^{x|x}_{t,T;\theta}$ can be built by any standard method (independently of volatilities\footnote{Spot volatilities are included in Future convexity adjustments but they do not require a very precise calibration of the volatility so these convexity adjustments are typically marked externally if not hardcoded. Conversely, the values of the futures in the curve building have almost no impact on the volatilities calibrated to swaption vols.}).
 \item Volatilities $\sigma^{x|x}_{t,T}$  can be bootstrapped on the fly.
-\item Mean reversions can be marked/calibrated externally as usual to match other ATM vols or, in the multi-dimensional case, some delivered rates correlations. 
+\item Mean reversions can be marked/calibrated externally as usual to match other ATM vols or, in the multi-dimensional case, some delivered rates correlations.
 \end{enumerate}
 
-%The LGCM model can take as an input a fully calibrated LGM for each currency. Equivalently, the LGCM calibrator can, as a first step, call a calibrator for each of these sub-models. 
-%
-%This provides initial native discount and index curves as well as the spot volatilities $\sigma^{x|x}_{t,T}$ calibrated to the corresponding market implied volatilities.
-
-
-
-\subsubsection{Cross-currency market}% 
-The next step is to calibrate to the cross-currency market. We focus on the G10 currencies where liquid instruments are 
+\subsubsection{Cross-currency market}%
+The next step is to calibrate to the cross-currency market. We focus on the G10 currencies where liquid instruments are
 \begin{enumerate}
 \item FX forwards (for short maturities)
-\item Resetting currency basis swaps 
-\item FX options  
+\item Resetting currency basis swaps
+\item FX options
 \end{enumerate}
 We will assume that they are collateralised in currency $d$ (USD in practice).
 
-This leads to the following set of calibration targets for each benchmark expiry:
+\subsubsection{Calibration targets and marked inputs}%
+The calibration described in this section, and implemented in \texttt{calibration.py} of the numerical companion, takes the following quotes:
 \begin{enumerate}
-\item a resetting currency basis spread (or an FX forward)
-\item an FX implied volatility  
-\item a resetting cross-currency basis spread (historical) volatility 
+\item native swap rates in $d$ and $f$ (OIS, or Libor with a constant funding spread);
+\item the FX spot $x^{df}_0$ and $d$-collateralised FX forwards (outrights or points);
+\item spot starting resetting currency basis (CB) swap spreads, $d$-collateralised;
+\item ATM normal volatilities of native swaptions in $d$ and $f$;
+\item ATM Black volatilities of FX options;
+\item ATM normal volatilities of forward resetting CB spreads (implied, or historical estimates when there is no option market).
 \end{enumerate}
+The following inputs are marked, not calibrated: the mean reversions $\beta^{a,i}$, the correlation matrix $\Omega$, the native funding spreads $\kappa^e$ and, within each block $a\in\{d,f,c\}$, fixed factor weights $w^{a,i}$. The spot volatilities are parametrised as
+\begin{eqnarray}
+  \sigma^{a,i}_t &=& \lambda^a_t\, w^{a,i} , \qquad a\in\{d,f,c\},
+\end{eqnarray}
+where the scalar level $\lambda^a_t$ and the FX spot volatility $\sigma^x_t$ are piecewise constant on the expiries of the options that calibrate them, with flat extrapolation after the last expiry. The model knots are the union of all expiries. Calibrating one level per block with fixed weights is a design choice: it gives one unknown per option quote, and it keeps the shape of the factor structure that was marked. If a block has no option quotes (e.g.\ no CB volatilities), its level is marked.
 
+The example market of the companion (\texttt{market\_data.py}: USD = $d$ with SOFR collateral, EUR = $f$ with ESTR collateral and EURIBOR 3M as the foreign index) has rounded, illustrative quotes. They are not live market data.
+
+
+\subsection{Calibration instruments}\label{ssec:calibration_instruments}
+
+We write $\kappa^e = 1-\theta S^{e|e,\div} = 1+\theta s^e$ for the constant multiplicative funding spread of the index of currency $e$ with tenor $\theta$ \eqref{eq:constant_funding_spread}, $\kappa^e = 1$ for an OIS index. The spot date is $0$.
+
+\begin{defi}[Calibration instruments]\label{defi:calibration_instruments}
+\begin{enumerate}
+\item \emph{Swaps.} A swap in currency $e$ under native collateral on $[T_0,T_n]$ has floating dates $T_0 = t^f_0 < \ldots < t^f_m = T_n$ every index tenor $\theta$ and fixed dates $t^x_1 < \ldots < t^x_p = T_n$ with accruals $\tau_k$ (its own frequency). With $Z_t = Z^{e|e}_{0,t}$, its forward par rate is
+\begin{eqnarray}
+  Y ~=~ \frac{\Fl}{A}, \qquad \Fl ~=~ \sum_{i=1}^m \left( \kappa^e Z_{t^f_{i-1}} - Z_{t^f_i} \right) ~=~ \sum_{m'} c^f_{m'} Z_{t^f_{m'}} , \qquad A ~=~ \sum_{k=1}^p \tau_k Z_{t^x_k} ,
+  \label{eq:cal_swap_rate}
+\end{eqnarray}
+since $1+\theta L^{e|e}_{0,t^f_{i-1};\theta} = \kappa^e Z_{t^f_{i-1}}/Z_{t^f_i}$. The coefficients are $c^f = \kappa^e$ at $T_0$, $\kappa^e - 1$ at the intermediate floating dates and $-1$ at $T_n$.
+\item \emph{FX forwards.} $d$-collateralised, quoted as the outright $x^{df|d}_{0,T}$ or as points $(x^{df|d}_{0,T} - x^{df}_0)\cdot 10^4$.
+\item \emph{Resetting CB swaps.} $d$-collateralised, on the schedule $T_j = T_0 + j\theta$, $j = 0,\ldots,n$, with $\theta$ the tenor of the foreign index. With $P_j = Z^{f|d}_{0,T_j}$ and $F_j = Z^{f|f}_{0,T_j}$, the par spread is
+\begin{eqnarray}
+  B ~=~ \frac{\sum_{j=1}^n \theta P_j B_j}{\sum_{j=1}^n \theta P_j} , \qquad
+  \theta B_j ~=~ \kappa^d \frac{P_{j-1}}{P_j} - \kappa^f \frac{F_{j-1}}{F_j} K_j ,
+  \label{eq:cal_ccs_spread}
+\end{eqnarray}
+where $\theta B_j = (1+\theta L^{f/d|d,r}_{0,T_{j-1};\theta}) - (1+\theta L^{f|d}_{0,T_{j-1};\theta})$ is the swaplet spread of \eqref{eq:forward_cb_swaplet_resetting} and
+\begin{eqnarray}
+  K_j ~=~ \frac{1+\theta L^{f|d}_{0,T_{j-1};\theta}}{1+\theta L^{f|f}_{0,T_{j-1};\theta}}
+\end{eqnarray}
+is the Libor collateral convexity.
+\item \emph{Swaptions.} An ATM option on a native forward-starting swap with expiry $T_0$ (strike $K = Y$), quoted as the normal volatility $\sigma_N$ defined from the payer price $\mathrm{PV}$ by $\mathrm{PV} = A_0\,\sigma_N\sqrt{T_0/(2\pi)}$, $A_0 = \sum_k\tau_k Z^{e|e}_{0,t^x_k}$ (ATM Bachelier price under the annuity measure).
+\item \emph{CB swaptions.} An ATM option on the forward resetting CB spread $B_{T_0} = B^{f/d|d,r}_{T_0,T_0;M}$, quoted as the normal volatility $\sigma_N = \EE^{f|d,A}[(B_{T_0}-B_0)^+]\sqrt{2\pi/T_0}$ under the annuity measure.
+\item \emph{FX options.} An ATM option on $x^{df}_T$, quoted as a Black volatility $\sigma_\BS$. In the LGCM, $\ln x^{df}_T$ is Gaussian under $\QQ^{d|d,T}$ with variance $w^{df}_0(T) = \int_0^T|\Sigma^{df}_{u,T}|^2du$, which does not depend on the collateral, so the quote is $\sigma_\BS^2 T = w^{df}_0(T)$.
+\end{enumerate}
+\end{defi}
+
+\begin{rema}[Curve keys]
+A discount curve $Z^{e|c}$ is identified by the pair (currency $e$, collateral overnight index $c$), e.g.\ $Z^{f|d} = $ (EUR, USD SOFR). The calibrated curves are $Z^{d|d}$, $Z^{f|f}$ and $Z^{f|d}$, the three initial curves of \autoref{theo:qgcm}. The off-market curve $Z^{d|f}$ is a model output (see \autoref{ssec:cal_off_market}): it is not bootstrapped from quotes.
+\end{rema}
+
+
+\subsection{Discount curves}
+
+\begin{prop}[Model-free curves]\label{prop:cal_model_free_curves}
+Assume constant funding spreads \eqref{eq:constant_funding_spread}. Then, in any arbitrage free model:
+\begin{enumerate}
+\item the par rates of native swaps are functions of the native discount curve $Z^{e|e}_{0,\cdot}$ only, given by \eqref{eq:cal_swap_rate};
+\item the cross-currency curve is determined by the $d$-collateralised FX forwards:
+\begin{eqnarray}
+  Z^{f|d}_{0,T} &=& \frac{x^{df|d}_{0,T}\, Z^{d|d}_{0,T}}{x^{df}_0} .
+\end{eqnarray}
+\end{enumerate}
+In particular, the native curves and $Z^{f|d}_{0,\cdot}$ up to the last FX forward pillar do not depend on the model. With piecewise flat forwards and one node per pillar, the native curves are obtained by a sequential bootstrap of the swap quotes.
+\end{prop}
+
+\begin{proof}
+1. Each floating coupon is replicated by $\kappa^e$ zero coupon bonds maturing at its start minus one at its end, by \eqref{eq:constant_funding_spread} and the definition of $L^{e|e}$ as an FRA par rate; fixed coupons are zero coupon bonds. 2. This is \eqref{eq:fx_forward} at $t=0$ with $i=d$.
+\end{proof}
+
+Beyond the last FX forward, the resetting CB swaps determine $Z^{f|d}$, but \eqref{eq:cal_ccs_spread} also involves the Libor collateral convexities $K_j$. They depend on the model: $K_j = 1$ in the deterministic collateral basis (DCB) model, and in the LGCM, by \eqref{eq:libor_collateral_convexity_lgcm},
+\begin{eqnarray}
+  K_j &=& \exp\left\{ -\int_0^{T_{j-1}} \Sigma^{f|f}_{u,T_{j-1};\theta}\cdot\Sigma^{f\to d}_{u,T_j}\,du \right\} .
+  \label{eq:cal_libor_convexity}
+\end{eqnarray}
+So the curve bootstrap only needs a \emph{convexity provider} that returns $K_j$.
+
+\begin{algo}[Curve bootstrap with a convexity provider]\label{algo:cal_curve_bootstrap}
+Input: linear quotes (swaps, FX forwards, resetting CB swaps) and a pricer that returns $K(T_{j-1},T_j)$.
+\begin{enumerate}
+\item Group the quotes by the curve they determine, and process the curves in dependency order: $Z^{d|d}$ and $Z^{f|f}$ first, then $Z^{f|d}$, whose FX forwards read $Z^{d|d}$ and whose CB swaps read $Z^{f|f}$.
+\item Native curves have piecewise flat instantaneous forwards. The curve $Z^{f|d}$ is the product of $Z^{f|f}$ and the collateral basis curve $\QZ^{f|f\to d}$, which has piecewise flat forwards (see the remark ``Which curve to interpolate'' in \autoref{ssec:interpolation_consistency}).
+\item On each curve, sort the quotes by (priority, pillar), FX forwards before CB swaps. For each quote whose pillar lies beyond the last node, add a node at the pillar. The flat forward on the new segment is the only unknown: solve (model quote) $=$ (market quote) by a bracketed 1D root search (Brent).
+\item A quote whose pillar is not beyond the last node of its curve is not used. It is reported as a check.
+\item Flat extrapolation after the last pillar.
+\end{enumerate}
+The DCB market practice is the case $K_j = 1$ (\texttt{calibrate\_curves(quotes)}). The LGCM uses \eqref{eq:cal_libor_convexity} with the current model parameters.
+\end{algo}
+
+\begin{rema}
+\begin{enumerate}
+\item Flat forwards are an interpolation choice, not a consequence of the model. They make each bootstrap step a scalar equation, as in the DCB stripping of \autoref{ssec:dd_curve_stripping}, where the unknown is the average forward rate on the segment.
+\item Quotes inside an already built section (e.g.\ a CB swap shorter than the last FX forward) are checks, not targets. On the example market all $31$ linear quotes set a node and there are no checks.
+\item In the example, $\rho^{f,c}<0$ and $K_j>1$ (\autoref{rema:cal_collateral_convexity}): the LGCM curve bootstrapped from the same quotes differs from the DCB curve after the last FX forward.
+\end{enumerate}
+\end{rema}
 
 
 \subsection{Calibration to single currency markets}
 
+\subsubsection{Calibration of spot-volatility to the cap market}%
+Not implemented: the companion calibrates the native blocks to swaptions only.
 
-\subsubsection{Calibration of spot-volatility to the cap market}% 
+\subsubsection{Calibration of spot-volatility to the swaption market}%
+We consider a native block $a\in\{d,f\}$ and a swaption in currency $a$ under native collateral. For a swap with cash flow dates $t_m$ (the union of the floating and fixed dates), we write $c_m$ for the coefficients of the payer swap at the ATM strike $K$: $c^f_m$ of \eqref{eq:cal_swap_rate} on the floating dates and $-K\tau_k$ on the fixed dates, summed for equal dates. We also write $P_m = Z^{a|a}_{0,t_m}/Z^{a|a}_{0,T_0}$.
 
+\begin{prop}[Exact one factor swaption]\label{prop:cal_exact_swaption}
+Assume the block $a$ has one factor, and write $z = z^a_{T_0}$, $y = y^{a,a}_{T_0}$, $G_m = G^a_{T_0,t_m}$. Then:
+\begin{enumerate}
+\item Under $\QQ^{a|a,T_0}$, $z\sim N(0,y)$ and $Z^{a|a}_{T_0,t} = P(t)\exp(-G^a_{T_0,t}z - \frac{1}{2}(G^a_{T_0,t})^2y)$, with $P(t) = Z^{a|a}_{0,T_0,t}$.
+\item The swap value at $T_0$ is $V(z) = \sum_m c_mP_m e^{-G_mz-\frac{1}{2}G_m^2y}$. Assume there is $z^*$ such that $V(z)>0$ iff $z>z^*$ (so $V(z^*)=0$). Then the payer swaption price is
+\begin{eqnarray}
+  \mathrm{PV} &=& Z^{a|a}_{0,T_0}\, \EE^{a|a,T_0}\left[V(z)^+\right] ~=~ Z^{a|a}_{0,T_0} \sum_m c_mP_m\, \mathcal{N}\left( -\frac{z^*+G_my}{\sqrt{y}} \right) ,
+  \label{eq:cal_exact_swaption}
+\end{eqnarray}
+and the quoted volatility is $\sigma_N = \mathrm{PV}/(A_0\sqrt{T_0/(2\pi)})$.
+\item The assumption of 2.\ holds when the coefficients $c_mP_m$, ordered by increasing $G_m$, change sign exactly once, from positive to negative. This is the case for OIS swaps ($\kappa^a = 1$) whose fixed dates are floating dates: the only positive coefficient is $c = 1$ at $T_0$, where $G = 0$.
+\end{enumerate}
+\end{prop}
 
-\subsubsection{Calibration of spot-volatility to the swaption market}% 
+\begin{proof}
+1. The reconstruction formula of Definition~\ref{defi:lgcm} gives $Z^{a|a}_{T_0,t} = P(t)\exp(-G^a_{T_0,t}z - \frac{1}{2}(G^a_{T_0,t})^2y)$ with $y$ deterministic. The change of measure from $\QQ^{d,\RN}$ to $\QQ^{a|a,T_0}$ has a deterministic Girsanov kernel (\autoref{prop:lgcm_drifts} and its foreign analogue), so $z$ is Gaussian, say $N(\mu,v)$. The martingale property $\EE^{a|a,T_0}[Z^{a|a}_{T_0,t}] = P(t)$ gives $-G\mu + \frac{1}{2}G^2(v-y) = 0$ for all $G = G^a_{T_0,t}$, $t\ge T_0$, which cover an interval. Hence $\mu = 0$ and $v = y$ (compare \autoref{lemm:zhat_forward_law}).
 
+2. The first equality is the forward measure pricing formula, and $V(z)^+ = V(z)\vun_{z>z^*}$ by assumption. For each term (exponential tilt),
+\begin{eqnarray*}
+  e^{-Gz-\frac{1}{2}G^2y}\,\frac{e^{-z^2/(2y)}}{\sqrt{2\pi y}} ~=~ \frac{e^{-(z+Gy)^2/(2y)}}{\sqrt{2\pi y}} ,
+\end{eqnarray*}
+the density of $N(-Gy,y)$. So $\EE[e^{-Gz-\frac{1}{2}G^2y}\vun_{z>z^*}] = \PP(N(-Gy,y)>z^*) = \mathcal{N}(-(z^*+Gy)/\sqrt{y})$.
 
+3. $G^a_{T_0,t} = \int_{T_0}^tM^a_{T_0,u}du$ is increasing in $t$. Let $G^*$ lie strictly between the largest $G_m$ with a positive coefficient and the smallest $G_m$ with a negative one. Then
+\begin{eqnarray*}
+  e^{G^*z}V(z) ~=~ \sum_{c_m>0} c_mP_me^{-\frac{1}{2}G_m^2y}\,e^{(G^*-G_m)z} - \sum_{c_m<0}|c_m|P_me^{-\frac{1}{2}G_m^2y}\,e^{(G^*-G_m)z}
+\end{eqnarray*}
+is strictly increasing (the first sum increases since $G_m<G^*$, the second decreases since $G_m>G^*$), and tends to $-\infty$ as $z\to-\infty$ and to $+\infty$ as $z\to+\infty$. It has a unique zero $z^*$, and $V$ has the sign of $e^{G^*z}V$. For an OIS swap the coefficients are $1$ at $T_0$ and $-K\tau_k$, $-1-K\tau_p$ at the fixed dates.
+\end{proof}
 
-\subsubsection{Calibration of mean-reversion to ATM swaptions}% 
+\begin{rema}[Libor swaps and what the code checks]
+For a Libor swap ($\kappa^a>1$) whose floating leg is more frequent than its fixed leg, the intermediate floating dates carry $\kappa^a-1>0$, so the coefficients change sign many times ($19$ times for the EURIBOR 3M swaps of the example) and item 3 does not apply. The implementation (\texttt{pricers.native\_swaption\_exact\_vol}) only checks $V(-12\sqrt{y})<0<V(12\sqrt{y})$, finds $z^*$ by Brent's method on this bracket and applies \eqref{eq:cal_exact_swaption}. It raises an error if there is no sign change on the bracket. It does not check that the root is unique. On the calibrated example market (16 swaptions $1$Y to $20$Y $\times 10$Y in USD and EUR) we checked numerically that $V$ changes sign exactly once on a grid of $20001$ points of $[-12\sqrt{y},12\sqrt{y}]$, and that \eqref{eq:cal_exact_swaption} agrees with an adaptive quadrature of $\EE[V^+]$ to $2\cdot10^{-9}$ in relative terms for EUR $15$Y$\times10$Y (the quadrature tolerance) and to $7\cdot10^{-14}$ for the others. This is a numerical observation for this market, not a proof for Libor swaps in general.
+\end{rema}
 
+\begin{prop}[Gaussian swaption variance with separate fixed and floating schedules]\label{prop:cal_gauss_swaption}
+Let the block $a$ have $N_a\ge 1$ factors and use the notations of \eqref{eq:cal_swap_rate} with $P_t = Z^{a|a}_{0,T_0,t}$, $A = \sum_k\tau_kP_{t^x_k}$ and $Y = \sum_m c^f_mP_{t^f_m}/A$. Define the loadings
+\begin{eqnarray}
+  q_i &=& \frac{1}{A}\left( -\sum_m c^f_m G^{a,i}_{T_0,t^f_m} P_{t^f_m} + Y \sum_k \tau_k G^{a,i}_{T_0,t^x_k} P_{t^x_k} \right) , \qquad i = 1,\ldots,N_a .
+\end{eqnarray}
+Freezing the gradient of the swap rate with respect to $z^a$ at its forward value, as in \autoref{prop:gauss_swap_rate}, the swap rate at $T_0$ is approximately normal under the annuity measure with mean $Y$ and variance $q^\top y^{a,a}_{T_0}q$. For equal fixed and floating schedules it is the formula of \autoref{rema:gauss_native}.
+\end{prop}
 
+\begin{proof}
+By the reconstruction formula, $\partial_{z_i}Z^{a|a}_{T_0,t}|_{z=0} = -G^{a,i}_{T_0,t}Z^{a|a}_{T_0,t}$ at first order in the volatility. So $\partial_{z_i}\Fl = -\sum_mc^f_mG^{a,i}_{T_0,t^f_m}P_{t^f_m}$, $\partial_{z_i}A = -\sum_k\tau_kG^{a,i}_{T_0,t^x_k}P_{t^x_k}$ and $\partial_{z_i}Y = (\partial_{z_i}\Fl - Y\partial_{z_i}A)/A = q_i$. The covariance of $z^a_{T_0}$ is $y^{a,a}_{T_0}$ (\autoref{prop:lgcm_joint_law}). With equal schedules, $c^f_m = \kappa^a\vun_{m=0} + (\kappa^a-1)\vun_{0<m<n} - \vun_{m=n}$ and $\tau = \theta$; regrouping the terms by period gives the loadings of \autoref{rema:gauss_native}.
+\end{proof}
 
-\subsubsection{Calibration of mean-reversion to swap rates correlations}% 
+\begin{rema}[Accuracy of the Gaussian approximation]\label{rema:cal_gauss_swaption_accuracy}
+\autoref{prop:cal_gauss_swaption} is an asymptotic approximation in the volatility. We measured the relative error of the approximate normal volatility against \autoref{prop:cal_exact_swaption} on a $5$Y$\times10$Y EURIBOR 3M swaption (test model of \texttt{tests/test\_calibration.py}) with all volatilities scaled by $\lambda = 0.5, 1, 2$: $2.175\cdot10^{-4}$, $8.702\cdot10^{-4}$, $3.482\cdot10^{-3}$. The ratios are $4.0002$ and $4.0010$, so the error is $O(\lambda^2)$ in this example (numerical observation, not a proof). On the calibrated example market, the approximate volatility exceeds the exact one by $+2.9\cdot10^{-4}$ (EUR $1$Y$\times10$Y) to $+5.4\cdot10^{-3}$ (USD $20$Y$\times10$Y), i.e.\ up to $0.46$bp. The equality with \autoref{rema:gauss_native} for equal schedules was checked to $10^{-12}$ against the independent code of \texttt{gaussian\_approx.approx\_native}, and the two factor variance against loadings and covariances computed by quadrature to $10^{-8}$.
+\end{rema}
 
+\begin{rema}[Bootstrap of $\lambda^a$ and initial guess]\label{rema:cal_swaption_bootstrap}
+Let $T_1<\ldots<T_n$ be the expiries of the swaptions of block $a$ (one swaption per expiry). The $k$-th swaption sets $\lambda^a$ on $[T_{k-1},T_k)$ ($T_0 = 0$), the last one on $[T_{n-1},\infty)$. A swaption with expiry $T_k$ only reads $\sigma^a$ on $[0,T_k]$, so the bootstrap is triangular: the earlier swaptions are not moved by the later ones. On the segment, $y^{a,a}_{T_k}$ is the integral of $\sigma^{a,i}\sigma^{a,j}$ over $[0,T_k]$ and the loadings $q$ do not depend on the volatilities, so the Gaussian variance is exactly
+\begin{eqnarray}
+  v(\lambda) &=& v_0 + \lambda^2 v_1 , \qquad v_0 = v(0), \quad v_1 = v(1) - v(0) ,
+\end{eqnarray}
+and $\lambda = \sqrt{(\sigma_N^2T_k - v_0)/v_1}$ matches the Gaussian approximation in closed form. With one factor, this is the initial guess of a Brent search on the exact volatility of \autoref{prop:cal_exact_swaption}. With several factors, it is the calibrated value: the Gaussian approximation is then the pricer, and the calibration diagnostics flag it. If $v_0\ge\sigma_N^2T_k$, the earlier segments already deliver the target variance (variance squeeze) and the calibration fails. Note that this test uses the Gaussian variance.
+\end{rema}
+
+\subsubsection{Calibration of mean-reversion to ATM swaptions}%
+Not implemented: mean reversions are marked. The example uses $\beta^d = 3\%$, $\beta^f = 2\%$ and $\beta^c = 10\%$.
+
+\subsubsection{Calibration of mean-reversion to swap rates correlations}%
+Not implemented: the correlations and the factor weights are marked.
 
 
 \newpage%
@@ -3230,218 +3370,241 @@ This leads to the following set of calibration targets for each benchmark expiry
 
 
 \subsubsection{Necessity for joint calibration}%
-Let us consider things from the curve building point of view. On the cross-currency market, the most liquid long-dated linear instruments are resetting currency basis swaps. Say we calibrated the model up to tenor $M$, i.e. up to date $T_{\f M}$ where $f = 4$ is the frequency of the swaps.  We now consider the calibration to the tenor $N$. We have 
+Let us consider things from the curve building point of view. On the cross-currency market, the most liquid long-dated linear instruments are resetting currency basis swaps. Say we calibrated the model up to tenor $M$, i.e. up to date $T_{\f M}$ where $f = 4$ is the frequency of the swaps.  We now consider the calibration to the tenor $N$. We have
 \begin{enumerate}
 \item one new target: the currency basis spread $B^{x/u|u,r}_{t_0,T;N}$
 \item multiple new unknowns: for each $j=\f M+1,\ldots,\f N$
 \begin{enumerate}
-\item the discount factors $Z^{x|u}_{t_0,T_j}$  
-\item the foreign forward rates $L^{x|u}_{t_0,T_{j-1};\theta}$ 
-\item the resetting forward rates $L^{x/u|u}_{t_0,T_{j-1};\theta}$ 
+\item the discount factors $Z^{x|u}_{t_0,T_j}$
+\item the foreign forward rates $L^{x|u}_{t_0,T_{j-1};\theta}$
+\item the resetting forward rates $L^{x/u|u}_{t_0,T_{j-1};\theta}$
 \end{enumerate}
 \end{enumerate}
-The problem is clearly under-determined. 
+The problem is clearly under-determined.
 
-However, the model provides convexity adjustments that relate the different forward rates to the ones from native single currency markets. But these convexity adjustments depend on the spot volatilities\footnote{as well as the cross-asset correlations. For now, we assume that they are marked but the same approach could be extended to calibrate instantaneous correlations by adding some terminal correlations/covariances as targets.}. Obviously these should be calibrated to match implied volatilities of option prices (FX options and currency basis swaptions) or historical estimations of volatility. 
+However, the model provides convexity adjustments that relate the different forward rates to the ones from native single currency markets. But these convexity adjustments depend on the spot volatilities\footnote{as well as the cross-asset correlations. For now, we assume that they are marked but the same approach could be extended to calibrate instantaneous correlations by adding some terminal correlations/covariances as targets.}. Obviously these should be calibrated to match implied volatilities of option prices (FX options and currency basis swaptions) or historical estimations of volatility.
 
-If we assume that correlations are marked by traders, and MR are marked or calibrated externally, we are left with 3 types of unknown parameters:  
+If we assume that correlations are marked by traders, and MR are marked or calibrated externally, we are left with 3 types of unknown parameters:
 \begin{enumerate}
-\item the cross-currency discount curve $Z^{f|d}_{t_0,T}$ 
-\item the collateral basis spot volatilities  $\sigma^{f\to d}_{t,T}$ 
+\item the cross-currency discount curve $Z^{f|d}_{t_0,T}$
+\item the collateral basis spot volatilities  $\sigma^{f\to d}_{t,T}$
 \item the FX spot volatilities $\sigma^{df}_{t}$
 \end{enumerate}
-And since they interact through convexity adjustments, they have to be jointly calibrated. 
+And since they interact through convexity adjustments, they have to be jointly calibrated.
 
-Moreover, we want the calibration to be local: for risk management purposes we do not want a 2Y FX option to be exposed to 10Y FX implied vols. This implies that we need to bootstrap the parameters. 
+Moreover, we want the calibration to be local: for risk management purposes we do not want a 2Y FX option to be exposed to 10Y FX implied vols. This implies that we need to bootstrap the parameters.
 
 
 \subsubsection{Bootstrapping}%
 
 \paragraph{Introduction}
-Convexity adjustments induce a lot of interdependence between market quotes. For risk management, we still need to be able to localise the risk. This means that the value of a 1Y FX option for example, should not depend on any market quote with expiry/maturity beyond 1Y. 
+Convexity adjustments induce a lot of interdependence between market quotes. For risk management, we still need to be able to localise the risk. This means that the value of a 1Y FX option for example, should not depend on any market quote with expiry/maturity beyond 1Y.
 
-That is not the case in a global calibration. 
+That is not the case in a global calibration.
 
-The natural way to achieve that is to "bootstrap" all the curves and term structure of parameters. 
+The natural way to achieve that is to "bootstrap" all the curves and term structure of parameters.
 
-This can be seen as breaking down the global calibration into steps by sorting calibration targets by expiry/maturity\footnote{This can be an interesting feature to add to the CalibrationTarget interface.} and calibrating model parameters iteratively.
-
-
-%[TODO: Describe the algo!]
-
-
+This can be seen as breaking down the global calibration into steps by sorting calibration targets by expiry/maturity and calibrating model parameters iteratively.
 
 \paragraph{Intuition}
-Let us assume we observe spot starting currency basis spreads for a given set of maturities $M_i$. 
+Let us assume we observe spot starting currency basis spreads for a given set of maturities $M_i$.
 
-Let us assume we calibrated the model up to expiry $M_i$. 
+Let us assume we calibrated the model up to expiry $M_i$.
 
 Then, we can compute the forward starting spread:
 \begin{eqnarray}
-  A^{f|d}_{0,T_0,T_{\f N}} B^{f/d|d,r}_{0,T_0,T_{\f N}} 
+  A^{f|d}_{0,T_0,T_{\f N}} B^{f/d|d,r}_{0,T_0,T_{\f N}}
   &=& A^{f|d}_{0,T_0,T_{\f M}} B^{f/d|d,r}_{0,T_0,T_{\f M}}  + A^{f|d}_{0,T_{\f M},T_{\f N}} B^{f/d|d,r}_{0,T_{\f M},T_{\f N}} \\
-  B^{f/d|d,r}_{0,T_0,T_{\f N}}  \sum_{j=1}^{\f N} \theta Z^{f|d}_{0,T_{j}} 
+  B^{f/d|d,r}_{0,T_0,T_{\f N}}  \sum_{j=1}^{\f N} \theta Z^{f|d}_{0,T_{j}}
   &=& A^{f|d}_{0,T_0,T_{\f M}} B^{f/d|d,r}_{0,T_0,T_{\f M}}  + \left( \sum_{j=\f M+1}^{\f N} \theta Z^{f|d}_{0,T_{j}} \right) B^{f/d|d,r}_{0,T_{\f M},T_{\f N}} \\
-  A^{f|d}_{0,T_0,T_{\f M}} \left(B^{f/d|d,r}_{0,T_0,T_{\f N}} - B^{f/d|d,r}_{0,T_0,T_{\f M}} \right) 
+  A^{f|d}_{0,T_0,T_{\f M}} \left(B^{f/d|d,r}_{0,T_0,T_{\f N}} - B^{f/d|d,r}_{0,T_0,T_{\f M}} \right)
   &=&  \sum_{j=\f M+1}^{\f N} \theta Z^{f|d}_{0,T_{j}}  \left( B^{f/d|d,r}_{0,T_{j-1},T_{j}} -B^{f/d|d,r}_{0,T_0,T_{\f N}} \right)
-\end{eqnarray} 
-Unknowns are 
+\end{eqnarray}
+Unknowns are
 \begin{itemize}
-\item Currency basis swaplet spreads $B^{f/d|d,r}_{0,T_j;\theta}$ 
-\item Discount rates $R^{f|d}_{0,T_{j};\theta}$ 
+\item Currency basis swaplet spreads $B^{f/d|d,r}_{0,T_j;\theta}$
+\item Discount rates $R^{f|d}_{0,T_{j};\theta}$
 \end{itemize}
 
-The model formulas relate these to the model parameters of which 
+The model formulas relate these to the model parameters of which
 \begin{itemize}
 \item Collateral basis spot vol $\sigma^{f\to d}_{t}$, $t\in [T_{\f M},T_{\f N}[$,
 \item FX spot vol\footnote{Actually it does not appear under constant funding spreads.} $\sigma^{df}_{t}$, $t\in [T_{\f M},T_{\f N}[$,
 \end{itemize}
-which we assume to be constant on the segment $[T_{\f M},T_{\f N}[$, are unknown. 
+which we assume to be constant on the segment $[T_{\f M},T_{\f N}[$, are unknown.
 
-Let us choose a parametrisation for the discount curve $Z^{f|d}$ or at least the collateral spread $\QZ^{f|f\to d}$. For example, we can consider 
+Let us choose a parametrisation for the discount curve $Z^{f|d}$ or at least the collateral spread $\QZ^{f|f\to d}$. For example, we can consider
 \begin{itemize}
-\item piecewise constant forwards 
-\item quadratic forwards together with continuity and derivability constraint at $T_{\f M}$ 
+\item piecewise constant forwards
+\item quadratic forwards together with continuity and derivability constraint at $T_{\f M}$
 \end{itemize}
 The point is that once the interpolation scheme has been chosen, the value of the discount curve on the segment is entirely specified by the average level of rates on the segment:
 \begin{eqnarray}
-  \overline{r}^{f|d}_{0,T_{\f M},T_{\f N}} &=& \frac{1}{T_{\f N}-T_{\f M}} \int_{T_{\f M}}^{T_{\f N}} r^{f|d}_{0,u} \, du 
-\end{eqnarray} 
+  \overline{r}^{f|d}_{0,T_{\f M},T_{\f N}} &=& \frac{1}{T_{\f N}-T_{\f M}} \int_{T_{\f M}}^{T_{\f N}} r^{f|d}_{0,u} \, du
+\end{eqnarray}
 So we have reduced the determination of the discount factors $Z^{f|d}_{t_0,T_i}$ to that of a single parameter.
 
 The problem is now well posed since we have 3 unknowns and 3 constraints as listed in \autoref{table:bootstrapping}.
 \begin{center}
 \begin{table}[h!]
 \begin{tabular}{|c|c|}
-\hline 
+\hline
 Unknowns & Constraints \\
-\hline 
-Average discount rate & Currency basis spread \\ 
+\hline
+Average discount rate & Currency basis spread \\
 ColBasis spot vol & Currency basis spread vol    \\
 %IRF-ColB spot corr & IRF-CB terminal correlation   \\
 \hline
 FX spot vol & FX implied vol \\
-\hline 
+\hline
 \end{tabular}
 \medskip
 \caption{Bootstrapping\label{table:bootstrapping}}
 \end{table}
-\end{center} 
+\end{center}
 
-Note that, while mathematically complex, the correspondence between model parameters and calibration targets is very intuitive. 
-
-The only remaining step is a good approximation for model delivered volatilities of currency basis spreads. It is given by \autoref{prop:gauss_cb_spread}.
+Note that, while mathematically complex, the correspondence between model parameters and calibration targets is very intuitive. The constraints are made explicit in \autoref{prop:cal_constraints} and the algorithm is \autoref{algo:cal_lgcm}. The pillars of the three constraints need not coincide: in the implementation the collateral basis curve has one node per FX forward and CB swap maturity, $\lambda^c$ one level per CB volatility expiry and $\sigma^x$ one level per FX option expiry.
 
 
 \subsubsection{Model usage and calibration targets}
 
-
 \begin{rema}[Model usage and calibration targets]
-The bootstrapping algorithm works as long as we have one target per expiry\footnote{Not true! We cannot apply the bootstrapping to a column of currency basis spreads with tenor $>3M$ for example as this would introduce some cyclic dependency between parameters.}. There is still a range of choices for the calibration targets that is up to discussion. The answer should be decided based on the model usage.
+The bootstrapping algorithm works as long as we have one target per expiry\footnote{With CB spread volatilities of tenor longer than the spacing of the expiries, the volatility of expiry $T_0$ reads $\sigma^c$ beyond $T_0$ (through the Libor convexities $K_{T_0,j}$), so the expiry by expiry bootstrap is no longer triangular. The fixed point of \autoref{algo:cal_lgcm} resolves this dependency.}. There is still a range of choices for the calibration targets that is up to discussion. The answer should be decided based on the model usage.
 
 The model can be used in two distinct ways:
 \begin{enumerate}
-\item Valuation and risk management. One should specify a set of hedging instruments and calibrate the model these. When an option market is available and these are included in hedging instruments, the internal parameters should be calibrated to options prices.  When no option market is available as is the case for currency basis volatility risk, the covariance parameters should be calibrated to the historical covariances of the corresponding market quotes, i.e. currency basis spreads in this case. Ideally one would have only one set of parameters so that pricings are consistent across products and break-even levels are well defined. 
+\item Valuation and risk management. One should specify a set of hedging instruments and calibrate the model these. When an option market is available and these are included in hedging instruments, the internal parameters should be calibrated to options prices.  When no option market is available as is the case for currency basis volatility risk, the covariance parameters should be calibrated to the historical covariances of the corresponding market quotes, i.e. currency basis spreads in this case. Ideally one would have only one set of parameters so that pricings are consistent across products and break-even levels are well defined.
 \item Benchmarking and reserve usage. One should mark covariance parameters that cannot be implied from market prices conservatively. In particular, these marks should depend on the structure of the portfolio.
 \end{enumerate}
 
-Note that since CB delta is going to be hedged with spot-starting resetting cross-currency swaps, one can argue that we should calibrate to their vol. At the same time, it is trivial to synthesise a forward-starting swap. 
+Note that since CB delta is going to be hedged with spot-starting resetting cross-currency swaps, one can argue that we should calibrate to their vol. At the same time, it is trivial to synthesise a forward-starting swap.
 \end{rema}
-
-
 
 
 \begin{rema}[FX options market]%
 The market ignores collateral convexity for FX options. It seems natural to assume FX forwards and volatilities correspond to USD collateralized products.
 
-Note that in the Linear Gaussian model, the volatility of the FX process is invariant under collateral but the FX forward is not. This means that the calibration targets we should chose may not be the standard ATM options. We may want to calibrate to the volatilities corresponding to the adjusted FX forward. 
+Note that in the Linear Gaussian model, the volatility of the FX process is invariant under collateral but the FX forward is not. This means that the calibration targets we should chose may not be the standard ATM options. We may want to calibrate to the volatilities corresponding to the adjusted FX forward. In the implementation, the ATM strike is the $d$-collateralised forward.
 
-Assuming all other parameters are set and we chose target implied volatilities, the FX spot volatility $\sigma^{df}_\cdot$ can easily be bootstrapped to match ATM volatilities. Calibration can only fail if we encounter a variance squeeze.
+Assuming all other parameters are set and we chose target implied volatilities, the FX spot volatility $\sigma^{df}_\cdot$ can be bootstrapped in closed form to match ATM volatilities (\autoref{prop:cal_constraints}). Calibration can only fail if we encounter a variance squeeze.
 \end{rema}
 
 
-%\newpage%
 \subsection{Bootstrapping algorithm}%
 
+\subsubsection{Calibration constraints}%
 
-\subsubsection{Currency basis spread constraint}%
+We use the notations of Definition~\ref{defi:calibration_instruments}, and $\Sigma^c = \Sigma^{f\to d}$, so that $\Sigma^{d\to f} = -\Sigma^c$.
 
-\begin{theo}
-Then the model is calibrated to model prices iff the following relations hold:
+\begin{prop}[Calibration constraints]\label{prop:cal_constraints}
 \begin{enumerate}
-\item Currency basis spread:
+\item \emph{CB spread.} Write $P_j = F_j\,\QZ_j$ with $\QZ_j = \QZ^{f|f\to d}_{0,T_j}$. On a bootstrap segment, $\QZ$ has a flat forward $\bar{q}$ after the last node, and the model CB spread is \eqref{eq:cal_ccs_spread} with $K_j$ given by \eqref{eq:cal_libor_convexity}:
 \begin{eqnarray}
-  A^{f|d}_{t,t;M}  \left( B^{f/d|d,r}_{t,t;N} - B^{f/d|d,r}_{t,t;M} \right)
-  &=& \sum_{j=\f M+1}^{\f N} \theta Z^{f|d}_{t,T_{\f M}} e^{- \overline{r}^{f|d}_{t,[M,N]} (T_j - T_{\f M})} \left( B^{f/d|d,r}_{t,T_{j-1};\theta} - B^{f/d|d,r}_{t,t;N} \right)
-%   &=& \sum_{j=\f M+1}^{\f N} \theta Z^{f|d}_{t,T_{\f M}} Z^{f|d}_{t,T_{\f M},T_j}(\overline{r}^{f|d}_{t,[M,N]}) \left( B^{f/d|d,r}_{t,T_{j-1};\theta} - B^{f/d|d,r}_{t,t;N} \right)
+  B(\bar{q}) &=& \frac{1}{\theta\sum_{j}P_j}\sum_{j=1}^n F_j\QZ_j \left( \kappa^d \frac{F_{j-1}\QZ_{j-1}}{F_j\QZ_j} - \kappa^f \frac{F_{j-1}}{F_j} K_j \right) .
 \end{eqnarray}
-\item Currency basis spread vol:
-\item FX implied volatility:
+It depends on the collateral basis volatility only through $K_j$, which reads $\sigma^c$ and $\sigma^f$ on $[0,T_{n-1}]$. The DCB model is the case $K_j = 1$.
+\item \emph{CB spread volatility.} The model volatility of the forward CB spread of expiry $T_0$ is given by the exact distribution of $B_{T_0}$ under $\QQ^{f|d,A}$ (\autoref{lemm:zhat_forward_law} and \autoref{lemm:par_spread_state_functions}, 2D quadrature) and, approximately, by \autoref{prop:gauss_cb_spread}: $\sigma_N^2T_0\approx\hat{q}_B^\top\hat{y}_{T_0}\hat{q}_B$. The exact value uses the Libor convexities seen from $T_0$, $K_{T_0,j} = \exp\{-\int_{T_0}^{T_{j-1}}\Sigma^{f|f}_{u,T_{j-1};\theta}\cdot\Sigma^{c}_{u,T_j}du\}$. So it reads $\sigma^c$ on $[0,T_{n-1}]$, beyond the expiry, and the curve $Z^{f|d}$ on $[T_0,T_n]$.
+\item \emph{FX volatility.} The total variance of an FX option of expiry $T$ is
 \begin{eqnarray}
-  \sigma^{df|c}_{\BS,t}(T)^2  (T-t)
-  &=& \int_t^T \left| \Sigma^{d|d}_{u,T} - \Sigma^{f|f}_{u,T} +\Sigma^{d\to f}_{u,T}  + \sigma^{df}_u  \right|^2 du
+  w(T) ~=~ \sigma_\BS^2\, T ~=~ \int_0^T\left|\Sigma^{df}_{u,T}\right|^2du , \qquad
+  \Sigma^{df}_{u,T} ~=~ \Sigma^{d|d}_{u,T} - \Sigma^{f|f}_{u,T} - \Sigma^{c}_{u,T} + \sigma^{df}_u .
+\end{eqnarray}
+If $\sigma^x = s$ on the last segment $[t_0,T]$ and all other parameters are fixed, then $w(T) = as^2 + bs + c$ with
+\begin{eqnarray*}
+  a &=& T - t_0 ~>~ 0 , \\
+  b &=& 2\sum_{(e,i)}\epsilon_e\int_{t_0}^T\rho^{(e,i),x}_u\sigma^{e,i}_uG^{e,i}_{u,T}\,du , \qquad \epsilon_d = 1,\ \epsilon_f = \epsilon_c = -1, \\
+  c &=& \int_0^{t_0}\left|\Sigma^{df}_{u,T}\right|^2du \\
+  & & + \int_{t_0}^T\left|\Sigma^{d|d}_{u,T} - \Sigma^{f|f}_{u,T} - \Sigma^c_{u,T}\right|^2du ,
+\end{eqnarray*}
+all covariance integrals (\autoref{ssec:covariance_integrals}). The FX volatility is matched by a non-negative $s$ iff
+\begin{eqnarray*}
+  \min_{s\ge0}\left(as^2+bs+c\right) ~\le~ \sigma_\BS^2T ,
+\end{eqnarray*}
+i.e.\ iff $c\le\sigma_\BS^2T$, or $b<0$ and $c - b^2/(4a)\le\sigma_\BS^2T$. Otherwise there is a variance squeeze. The largest root is
+\begin{eqnarray}
+  s &=& \frac{-b + \sqrt{b^2 - 4a\left(c - \sigma_\BS^2T\right)}}{2a} .
+  \label{eq:cal_fx_root}
 \end{eqnarray}
 \end{enumerate}
-\end{theo}
+\end{prop}
 
-%
-%\begin{prop}
-%%
-%\begin{eqnarray}
-%  A^{f|d}_{t,t;M}  \left( B^{f/d|d,r}_{t,t;N} - B^{f/d|d,r}_{t,t;M} \right)
-%  &=& \sum_{j=\f M+1}^{\f N} \theta Z^{f|d}_{t,T_j}  \left( B^{f/d|d,r}_{t,T_{j-1};\theta} - B^{f/d|d,r}_{t,t;N} \right)
-%\end{eqnarray}
-%\begin{eqnarray}
-%  A^{f|d}_{t,t;M}  \left( B^{f/d|d,r}_{t,t;N} - B^{f/d|d,r}_{t,t;M} \right)
-%  &=& \sum_{j=\f M+1}^{\f N} \theta Z^{f|d}_{t,T_{\f M}}  e^{- \overline{r}^{f|d}_{t,[M,N]} (T_j - T_{\f M})} \left( B^{f/d|d,r}_{t,T_{j-1};\theta} - B^{f/d|d,r}_{t,t;N} \right)
-%\end{eqnarray}
-%
-%\end{prop}
-%
+\begin{proof}
+1. Substitute $P_j = F_j\QZ_j$ in \eqref{eq:cal_ccs_spread}; $K_j$ is \eqref{eq:libor_collateral_convexity_lgcm} at $t=0$.
 
-\subsubsection{Currency basis spread volatility constraint}%
+2. The CB spread is a function of $\hat{z}_{T_0}$ by \autoref{lemm:par_spread_state_functions}, where the foreign Libor under domestic collateral at $T_0$ involves $K_{T_0,j}$ by \eqref{eq:libor_collateral_convexity_lgcm} at $t = T_0$, and $\hat{z}_{T_0}$ is Gaussian by \autoref{lemm:zhat_forward_law}.
 
+3. By the proposition on the FX spot dynamic in the LGCM specification,
+\begin{eqnarray*}
+  \Sigma^{df}_{u,T}\cdot dW_u &=& \sum_{(e,i)}\epsilon_e\sigma^{e,i}_uG^{e,i}_{u,T}\,d\widetilde{W}^{(e,i)}_u + \sigma^x_u\,d\widetilde{W}^x_u .
+\end{eqnarray*} On $[0,t_0)$ the integrand does not depend on $s$. On $[t_0,T]$, expand $|\Lambda_u + s\,e_x|^2 = |\Lambda_u|^2 + 2s\,\Lambda_u\cdot e_x + s^2$ with $\Lambda_u = \Sigma^{d|d}_{u,T}-\Sigma^{f|f}_{u,T}-\Sigma^c_{u,T}$ and $\rho^{x,x} = 1$. The values of $\sigma^x$ after $T$ do not enter. Since $a>0$, the minimum of the quadratic over $s\ge 0$ is $c$ if $b\ge 0$ and $c - b^2/(4a)$ if $b<0$; a non-negative root exists iff this minimum is at most the target, and then the largest root \eqref{eq:cal_fx_root} is non-negative.
+\end{proof}
 
-\subsubsection{FX implied volatility constraint}%
-
-
+\begin{rema}
+\begin{enumerate}
+\item In item 3, $\Sigma^{df} = \Sigma^{d|d} - \Sigma^{f|f} + \Sigma^{d\to f} + \sigma^{df}$, with $\Sigma^{d\to f} = -\Sigma^c$, as in the FX forward dynamic of the reconstruction section. We checked that the total variance of the implementation agrees with explicit loadings $(+G^d,-G^f,-G^c,1)$ to rounding, and that on every FX segment of the calibrated example $w(2) - (4a+2b+c) \le 4\cdot10^{-15}$ (exact quadratic) and $a = T-t_0$ to $10^{-12}$.
+\item The implementation computes $a$, $b$, $c$ from $w(0)$, $w(1)$, $w(-1)$ and takes the largest root \eqref{eq:cal_fx_root}. When both roots are non-negative ($c>\sigma_\BS^2T$ and $b<0$) the choice of the largest one is a convention. On the example market $c<\sigma_\BS^2T$ and $b<0$ at every FX expiry, so the non-negative root is unique.
+\item The quantities of items 1 and 2 do not involve $\sigma^x$ ($K_j$ and the law of $\hat{z}$ under $\QQ^{f|d,T_0}$ only involve the $f$ and $c$ blocks). So the FX volatilities can be calibrated last, without feedback.
+\end{enumerate}
+\end{rema}
 
 \subsubsection{Bootstrapping algorithm}%
 
-\begin{theo}
-Let $N$ be the next tenor, solve for the average rate and collateral basis volatility satisfying: 
+\begin{algo}[LGCM calibration]\label{algo:cal_lgcm}
+Input: the quotes of the introduction, the marked mean reversions, weights, correlations and funding spreads, and a marked level of $\lambda^c$ if there are no CB volatility quotes. The model knots are the union of all option expiries and a horizon ($60$Y).
 \begin{enumerate}
-\item Currency basis spread:
-\begin{eqnarray}
-  A^{f|d}_{t,t;M}  \left( B^{f/d|d,r}_{t,t;N} - B^{f/d|d,r}_{t,t;M} \right)
-  &=& \sum_{j=\f M+1}^{\f N} \theta Z^{f|d}_{t,T_{\f M}} Z^{f|d}_{t,T_{\f M},T_j}(\overline{r}^{f|d}) \left( B^{f/d|d,r}_{t,T_{j-1};\theta} - B^{f/d|d,r}_{t,t;N} \right)
-\end{eqnarray}
-where each currency basis swaplet is expended as:
-\begin{eqnarray}
-   B^{f/d|d,r}_{t,T_{j-1};\theta} &=&
-\end{eqnarray}
-\item Currency basis spread vol:
-%\item FX implied volatility:
-%\begin{eqnarray}
-%  \sigma^{df|c}_{\BS,t}(T)^2  (T-t)
-%  &=& \int_t^T \left| \Sigma^{d|d}_{u,T} - \Sigma^{f|f}_{u,T} +\Sigma^{d\to f}_{u,T}  + \sigma^{df}_u  \right|^2 du
-%\end{eqnarray}
+\item \emph{Native curves.} Bootstrap $Z^{d|d}$ and $Z^{f|f}$ from the swaps (\autoref{algo:cal_curve_bootstrap}, model-free by \autoref{prop:cal_model_free_curves}).
+\item \emph{Rates volatilities.} For $a\in\{d,f\}$, bootstrap $\lambda^a$ expiry by expiry from the swaptions (\autoref{rema:cal_swaption_bootstrap}): Gaussian guess, then the exact price of \autoref{prop:cal_exact_swaption} for one factor.
+\item \emph{Fixed point on $(\QZ^{f|f\to d},\lambda^c)$.} Repeat:
+\begin{enumerate}
+\item bootstrap $Z^{f|d}$ from the FX forwards and the resetting CB swaps (\autoref{algo:cal_curve_bootstrap}) with $K_j$ from the current $\sigma^c$;
+\item if CB volatilities are quoted, for each expiry $T_k$ solve for $\lambda^c$ on $[T_{k-1},T_k)$ (the last one on $[T_{n-1},\infty)$): Brent search on the Gaussian approximation of \autoref{prop:gauss_cb_spread}, then Brent search on the exact quadrature started there. Fail if the volatility at $\lambda^c = 0$ on the segment already exceeds the target (variance squeeze);
 \end{enumerate}
-\end{theo}
+until the maximum change of the $\lambda^c$ levels and of the forwards of $\QZ^{f|f\to d}$ between two iterations is below $10^{-12}$ (at most $30$ iterations, else fail). Without CB volatilities, one pass with the marked $\sigma^c$.
+\item \emph{FX volatility.} For each FX expiry $T_k$, set $\sigma^x$ on $[T_{k-1},T_k)$ (the last one on $[T_{n-1},\infty)$) by \eqref{eq:cal_fx_root}; fail on a variance squeeze.
+\end{enumerate}
+Output: the model, the curves $Z^{d|d}$, $Z^{f|f}$, $Z^{f|d}$, and the off-market curve $Z^{d|f}$ (\autoref{ssec:cal_off_market}).
+\end{algo}
+
+\begin{rema}[Why a fixed point, and why each expiry sets only its own segment]\label{rema:cal_fixed_point}
+\begin{enumerate}
+\item The curve $Z^{f|d}$ beyond the FX forwards depends on $\sigma^c$ on $[0,30\mathrm{Y}]$ through the $K_j$ (\autoref{prop:cal_constraints}, item 1). The CB volatility of expiry $T_k$ depends on the curve (weights $P_j$, levels $B_j$) and, through $K_{T_k,j}$, on $\sigma^c$ on $[T_k,T_k+\mathrm{tenor}-\theta]$, i.e.\ on the next segment (item 2). Neither ``curve first, then volatilities'' nor ``expiry by expiry'' is triangular, hence the fixed point. The swaption and FX steps are triangular and need no iteration.
+\item A level set on $[T_{k-1},\infty)$ instead of $[T_{k-1},T_k)$ would overwrite the pieces read by the earlier CB volatilities. A draft implementation did this: the earlier CB volatilities were then missed by up to $3.8\cdot10^{-11}$. With one segment per expiry and the outer fixed point, they are repriced to $1.5\cdot10^{-17}$.
+\item On the example market the fixed point stops after $5$ iterations, with changes $\infty$, $6.2\cdot10^{-4}$, $1.8\cdot10^{-7}$, $4.0\cdot10^{-11}$, $8.3\cdot10^{-15}$: a contraction factor of about $3\cdot10^{-4}$ per iteration. This is a numerical observation; we have no proof of contraction. It is consistent with the size of the coupling: $K_j - 1\le 2.24\cdot10^{-4}$ up to $30$Y. With $\sigma^c = 0$ and no CB volatilities, one pass suffices and the LGCM curve equals the DCB curve to $10^{-14}$ (test \texttt{test\_dcb\_limit}).
+\item The whole calibration takes $7.0$s on the example market (65 quotes). The calibrated levels are $\lambda^d$ between $1.19\%$ and $1.35\%$, $\lambda^f$ between $0.89\%$ and $1.05\%$, $\lambda^c$ between $9.9$bp and $18.6$bp and $\sigma^x$ between $7.0\%$ and $8.3\%$. Round trip: quotes generated by the calibrated model, calibrated from another initial $\lambda^c$, give back the parameters to $10^{-8}$ (relative) and $Z^{f|d}$ to $10^{-12}$.
+\end{enumerate}
+\end{rema}
+
+\begin{rema}[Verification]\label{rema:cal_verification}
+All numbers are for the example market and the default specification (one factor per block, $\beta^d = 3\%$, $\beta^f = 2\%$, $\beta^c = 10\%$, $\rho^{d,f} = 0.6$, $\rho^{f,c} = -0.4$, $\rho^{d,c} = -0.2$, $\rho^{d,x} = 0.25$, $\rho^{f,x} = 0.3$, $\rho^{c,x} = 0.35$), computed by \texttt{calibration\_check.py}.
+\begin{enumerate}
+\item \emph{Analytic repricing} with the exact pricers (65 quotes). Maximum absolute errors: swaps $2.3\cdot10^{-16}$, FX forwards $1.45\cdot10^{-12}$ pips, resetting CB swaps $5.0\cdot10^{-17}$, swaption normal volatilities $6.4\cdot10^{-17}$, FX Black volatilities $1.4\cdot10^{-17}$, CB normal volatilities $1.5\cdot10^{-17}$. The Gaussian approximations differ from the exact values by $+2.9\cdot10^{-4}$ to $+5.4\cdot10^{-3}$ (relative) for swaptions and at most $5.7\cdot10^{-5}$ for CB volatilities ($15$Y$\times1$Y).
+\item \emph{Monte Carlo repricing} of all 65 quotes with the exact LGCM scheme (quarterly grid refined by the payment and fixing dates), $2^{17}$ antithetic paths, seed $7$, with control variates whose means are exact no-arbitrage identities. All quotes are within $4$ standard errors; the largest $|z|$ is $2.22$ (EUR $20$Y$\times10$Y swaption). By type: swaps $2.15$, FX forwards $1.62$, CB swaps $0.97$, swaptions $2.22$, FX options $1.84$, CB volatilities $1.53$. Median standard errors: $0.0076$bp for CB spreads, $0.11$bp for swaption volatilities, $0.024$bp for CB volatilities. The option prices are compared as prices: the MC straddle is mapped to a volatility by the same linear map as the pricer, so no Gaussian assumption enters the MC side.
+\item \emph{Power of the checks.} The CB swap check resolves the Libor collateral convexity: the DCB spread ($K_j = 1$) on the calibrated curve is $+16$ standard errors ($2$Y) to $+124$ standard errors ($30$Y) away from the MC value in the run above, and $19.7$, $26.1$, $35.6$ standard errors at $5$, $7$, $10$Y in the reduced test run ($2^{15}$ paths, seed $11$). With $2^{18}$ paths (seed $3$) the Gaussian swaption approximation is rejected at $7.8$ and $7.0$ standard errors for USD $15$Y$\times10$Y and $20$Y$\times10$Y, while the exact values are at $+0.35$ and $+0.94$. The Gaussian gap of the CB volatilities ($\le5.7\cdot10^{-5}$ relative) is below the MC resolution (about $2.5\cdot10^{-3}$ relative): only the quadrature distinguishes it.
+\item \emph{What is not tested.} The swap and FX forward MC checks are martingale tests of the deflators against the curves ($\EE[D_t] = Z_{0,t}$, $\EE[D_Tx_T] = Z_{0,T}x^{df|d}_{0,T}$). They do not test the calibrated volatilities, and their closed forms are already repriced to $10^{-16}$ analytically. The CB volatility control variate assumes the closed form $K_{T_0,j}$; dropping $K_{T_0,j}-1\le7.2\cdot10^{-7}$ from it is not detected by the MC (it moves the spread by about $0.01$bp).
+\end{enumerate}
+The tests are in \texttt{tests/test\_calibration.py}; the MC tests are marked \texttt{slow}.
+\end{rema}
+
+\begin{rema}[Collateral convexity in the calibrated curves]\label{rema:cal_collateral_convexity}
+We compare the LGCM calibration with the DCB curve bootstrap (\autoref{algo:cal_curve_bootstrap} with $K_j = 1$) on the same quotes, with the specification of \autoref{rema:cal_verification}.
+\begin{enumerate}
+\item The two $Z^{f|d}$ curves coincide up to the last FX forward ($1$Y), as they must (\autoref{prop:cal_model_free_curves}). After that, the LGCM zero rate of $Z^{f|d}$ is above the DCB one by $+0.17$bp at $5$Y, $+0.63$bp at $10$Y, $+2.05$bp at $20$Y and $+3.75$bp at $30$Y.
+\item The Libor collateral convexity of the last period, $K_j - 1$, is $4.4\cdot10^{-5}$ at $10$Y and $2.24\cdot10^{-4}$ at $30$Y. On the calibrated curve, it lowers the $30$Y CB spread by $3.15$bp compared with $K_j = 1$; the DCB curve absorbs this difference in its basis.
+\item The FX forward collateral convexity $x^{df|f}_{0,T}/x^{df|d}_{0,T} - 1 = \exp\{\int_0^T\Sigma^{df}_{u,T}\cdot\Sigma^c_{u,T}du\} - 1$ is $+3.7$bp at $5$Y, $+15.3$bp at $10$Y and $+119.6$bp at $30$Y. The off-market curve $Z^{d|f}$ has a zero rate $1.53$bp above the DCB off-market curve $Z^{d|d}Z^{f|f}/Z^{f|d}$ of \eqref{eq:usd_off_market_discount_curve} at $10$Y.
+\item Sensitivity to $\rho^{f,c}$ (full recalibration, other inputs unchanged): $30$Y shift of the $Z^{f|d}$ zero rate / $10$Y FX forward collateral convexity of $5.63$/$20.95$bp for $\rho^{f,c} = -0.6$, $3.75$/$15.30$bp for $-0.4$, $0.00$/$3.98$bp for $0$ and $-3.76$/$-7.36$bp for $+0.4$. The curve shift vanishes at $\rho^{f,c} = 0$ because, with one factor per block, $K_j$ only involves the $(f,c)$ covariance. The calibrated $\lambda^c(10\mathrm{Y})$ hardly moves ($15.76$ to $15.81$bp). With the other default correlations, the correlation matrix is positive definite only for $\rho^{f,c}$ in about $[-0.7,0.6]$.
+\end{enumerate}
+The numbers of items 1 to 3 come from a script on the calibrated model; those of item 4 from the notebook \texttt{python/notebooks/lgcm\_calibration.py}.
+\end{rema}
 
 
+\subsection{Off-market collateral}\label{ssec:cal_off_market}%
 
-
-
-
-\newpage%
-\subsection{Off-market collateral}%
-
-%\begin{rema}[Off-market collateral]%
-Once the model is calibrated, off-market curves can be computed in closed form using the FX forward convexity adjustment.
-%\end{rema}
-
-
+Once the model is calibrated, off-market curves can be computed in closed form using the FX forward convexity adjustment:
+\begin{eqnarray*}
+  Z^{d|f}_{0,T} ~=~ \frac{x^{df}_0\,Z^{f|f}_{0,T}}{x^{df|f}_{0,T}} , \qquad
+  x^{df|f}_{0,T} ~=~ x^{df|d}_{0,T}\exp\left\{\int_0^T\Sigma^{df}_{u,T}\cdot\Sigma^c_{u,T}\,du\right\} .
+\end{eqnarray*}
+In the DCB model the exponential is $1$ and $Z^{d|f}$ reduces to \eqref{eq:usd_off_market_discount_curve}.
 
 
 \newpage%
