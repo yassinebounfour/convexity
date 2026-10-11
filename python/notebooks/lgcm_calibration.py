@@ -78,11 +78,7 @@ def _(MARKETS, mo):
 
 
 @app.cell
-def _(CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap, Swaption, example_quotes, functools, market, mo):
-    @functools.lru_cache(maxsize=8)
-    def quotes_for(mkt):
-        return example_quotes(mkt)
-
+def _(CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap, Swaption, market, mo, quotes_for):
     MQ = quotes_for(market.value)
 
     def _display(inst, v):
@@ -119,7 +115,7 @@ def _(CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap, Swaption, 
     mo.vstack([mo.md(f"## Market quotes: {market.value}\n\nForeign collateral {_s.foreign_collateral.name}, floating index "
                      f"{_s.foreign_index.name}, {_cpdesc}.\n\n{_fx} {len(MQ.quotes)} quotes."),
                mo.ui.table(_rows, page_size=12, selection=None)])
-    return MQ, quotes_for
+    return (MQ,)
 
 
 @app.cell
@@ -142,10 +138,14 @@ def _(mo):
 
 
 @app.cell
-def _(BlockSpec, CurrencyBasisSwaption, Index, calibrate, calibrate_curves, default_spec, functools,
-      fx_collateral_convexity, np, quotes_for, replace):
+def _(BlockSpec, CurrencyBasisSwaption, Index, calibrate, calibrate_curves, default_spec, example_quotes, functools,
+      fx_collateral_convexity, np, replace):
     # No slider (or market) dependencies in this cell: the caches below survive slider releases and market
     # switches; every cached function is keyed on the market name and the parameter tuple.
+    @functools.lru_cache(maxsize=8)
+    def quotes_for(mkt):
+        return example_quotes(mkt)
+
     def build(mkt, rho_fc, scale, bc, bf):
         """ModelSpec and quotes of market `mkt` for the parameter tuple (rho^{fc}, CB vol scale, beta^c, beta^f).
         Raises ValueError when the correlation matrix is not positive definite."""
@@ -188,7 +188,7 @@ def _(BlockSpec, CurrencyBasisSwaption, Index, calibrate, calibrate_curves, defa
         lam10 = lam[min(np.searchsorted(k, 10.0 - 1e-9, side="right") - 1, len(lam) - 1)]
         return float(shift), float(lam10 * 1e4), float((fx_collateral_convexity(cal_.model, 10.0) - 1) * 1e4)
 
-    return build, calibrated, dcb_for, impact, libor_calibrated
+    return build, calibrated, dcb_for, impact, libor_calibrated, quotes_for
 
 
 @app.cell
@@ -295,7 +295,7 @@ def _(analytic_report, cal, mo, np, unit_scale):
 
 
 @app.cell
-def _(C, cal, market, mc_report, mo, npaths, np, plt, run_mc, unit_scale):
+def _(C, Coupon, cal, market, mc_report, mo, npaths, np, plt, run_mc, unit_scale):
     mo.stop(not run_mc.value, mo.md("## Monte Carlo check\n\nPress *Run Monte Carlo check* above. "
                                     "Note: the result is cleared whenever the model is recalibrated (a slider "
                                     "is released), because this cell depends on the calibration and the button "
@@ -304,6 +304,9 @@ def _(C, cal, market, mc_report, mo, npaths, np, plt, run_mc, unit_scale):
     _ois = cal.curves.setup.foreign_index.kind == "OIS"
     _step = 1 / 52 if _ois else None      # weekly compounding on the paths and in the model (daily paths are slow)
     _rows = mc_report(cal, n_paths=npaths.value, timings=_t, compounding_step=_step)
+    _gapw = (max(abs(cal.curves.coupon("f").convexity(cal.model, 0.0, 0.25 * j, 0.25 * j + 0.25)
+                     - Coupon("daily", _step).convexity(cal.model, 0.0, 0.25 * j, 0.25 * j + 0.25)) for j in range(120))
+             if _ois else 0.0)
     _zs = np.nan_to_num(np.array([r.z for r in _rows]))
     _ok = np.abs(_zs) <= 4
     _fig, _ax = plt.subplots(figsize=(8, 0.17 * len(_rows) + 1.5), constrained_layout=True)
@@ -324,7 +327,7 @@ def _(C, cal, market, mc_report, mo, npaths, np, plt, run_mc, unit_scale):
     mo.vstack([mo.md(f"""## Monte Carlo check
 
     {market.value}: {npaths.value} paths, exact scheme; simulation {_t['simulate']:.1f} s. The check passes when |z| <= 4.
-    {"The foreign overnight coupon is compounded **weekly** (step 1/52) on the paths and in the model: daily paths are slow, and the closed form is exact for any step (the quotes stay those calibrated with the daily coupon, so the weekly coupon differs from it by an O(step) amount that is far below the Monte Carlo errors)." if _ois else "The foreign index is a Libor-type coupon (no compounding grid)."}
+    {"The foreign overnight coupon is compounded **weekly** (step 1/52) on the paths and in the model: daily paths are slow, and the closed form is exact for any step (the quotes stay those calibrated with the daily coupon, so the weekly coupon differs from the daily one by an O(step) amount: max |K_weekly - K_daily| over the quarterly periods to 30Y is " + f"{_gapw:.1e}" + "; compare it with the s.e. column below)." if _ois else "The foreign index is a Libor-type coupon (no compounding grid)."}
     Rows outside: **{', '.join(_bad) if _bad else 'none'}**. Instruments with no sampling error (z undefined,
     e.g. deterministic cash flows) are not plotted as outliers. The result is cleared when a slider is
     released (see above); press the button again.
@@ -432,7 +435,7 @@ def _(C, Coupon, LIBOR, cal, market, mo, np, plt):
     panel, hence the differences on the right (note the scale $10^{{-8}}$).
 
     - largest $K-1$ (Libor): **{_KL.max():.3e}** ({_KL.max() * 1e4:.3f} bp) at {_a0[np.argmax(_KL)]:.2f}Y; 30Y period: {_KL[-1]:.3e}
-    - largest |daily $-$ Libor|: **{np.max(np.abs(_d_dl)):.2e}** (at most {np.max(_rel):.1e} relative to $K-1$ for periods after the first)
+    - largest |daily $-$ Libor|: **{np.max(np.abs(_d_dl)):.2e}** (at most {np.max(_rel):.1e} relative to $K-1$; the first period $a=0$ is excluded because $K=1$ for every coupon there, so the relative difference is undefined)
     - largest |continuous $-$ daily|: **{np.max(np.abs(_d_cd)):.2e}**
     - $O(\\text{{step}})$ check: max |continuous $-$ daily(step)| for step = 1/12, 1/52, 1/365:
       {_gap[0]:.2e}, {_gap[1]:.2e}, {_gap[2]:.2e}; ratios {_gap[0] / _gap[1]:.1f} and {_gap[1] / _gap[2]:.1f}
