@@ -55,8 +55,9 @@ def test_repo_convexity_matches_quadrature(pw, t, s, e, T):
 
 @pytest.mark.parametrize("a,b", [(1.0, 1.5), (2.0, 3.0), (5.0, 10.0)])
 def test_repo_to_maturity_is_libor_convexity(pw, a, b):
-    """T = e: the repo convexity is the Libor collateral convexity (this fixes the sign of Sigma^c)."""
-    assert repo.repo_convexity(pw, 0.0, a, b, b) == pytest.approx(math.log(libor_convexity(pw.lgcm, 0.0, a, b)), rel=1e-12)
+    """T = e: the repo convexity is the Libor collateral convexity (this fixes the sign of Sigma^c).
+    Measured: 8e-17 to 9e-17 absolute, the round-off of exp then log in libor_convexity."""
+    assert repo.repo_convexity(pw, 0.0, a, b, b) == pytest.approx(math.log(libor_convexity(pw.lgcm, 0.0, a, b)), rel=0, abs=5e-16)
 
 
 def test_boundary_conditions(pw):

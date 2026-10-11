@@ -4035,7 +4035,7 @@ McCloud (\S4) proposes the extrapolated term repo curve $\hat p^e$ for discounti
 \begin{rema}[Verification]\label{rema:repo_verification}
 The checks are in \texttt{python/convexity/tests/test\_repo.py}. Hull--White parameters are $\theta = 5\%$, $\sigma = 1\%$, $\kappa = 40\%$, $\varepsilon = 0.8\%$, $\rho = -0.5$, with flat curves $\bar r = 3.5\%$, $b = -20$bp.
 \begin{enumerate}
-\item \autoref{prop:repo_lgcm} against nested adaptive quadrature in a two-factor bond, one-factor basis piecewise model with zero, tiny and negative mean reversions: $6\cdot10^{-15}$ relative. For $T = e$ it equals the Libor collateral convexity to $10^{-12}$.
+\item \autoref{prop:repo_lgcm} against nested adaptive quadrature in a two-factor bond, one-factor basis piecewise model with zero, tiny and negative mean reversions: $6\cdot10^{-15}$ relative. For $T = e$ it equals the Libor collateral convexity to $10^{-16}$ absolute (the round-off of \texttt{libor\_convexity}; $1.5\cdot10^{-11}$ relative at $\ln K = 5\cdot10^{-6}$).
 \item \autoref{prop:repo_hw}: McCloud's closed forms to $10^{-11}$ relative, also past the last knot and for small and negative mean reversions; the polynomial limit at $\theta = \kappa = 0$ to $10^{-12}$.
 \item \autoref{prop:repo_hw_curve}: the interpolations (41), (43) and the extrapolation (39) hold to $10^{-12}$ in Hull--White; the forward spread (38) matches a central finite difference of $M^{e\infty}_0$ to $10^{-7}$; the failure beyond Hull--White is quoted in the Remark above.
 \item \autoref{prop:repo_coupon}: a one-cash-flow bond reproduces \autoref{prop:repo_rate} to $10^{-13}$; $b = 0$ gives the bond forward to $10^{-13}$; Gauss--Hermite with $40$ and $60$ nodes agree to $10^{-14}$.
