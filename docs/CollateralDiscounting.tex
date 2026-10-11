@@ -4014,16 +4014,20 @@ which is $-\rho\sigma\varepsilon\,(E(\theta,s-t)-E(\theta+\kappa,s-t))/\kappa$ i
 For $s = t$ the first integral of \autoref{prop:repo_lgcm} vanishes; in the second, $\bar\Sigma_{u,t+h} - \bar\Sigma_{u,T}$ is bounded and $\Sigma^b_{u,t+h} = O(h)$ on an interval of length $h$. For $s > t$, $\bar\Sigma_{u,s+h} - \bar\Sigma_{u,s} = h\,\partial_s\bar\Sigma_{u,s} + O(h^2)$ and the second integral is $O(h^2)$.
 \end{proof}
 
+\begin{hypo}[Security collateral]
+Posting a fully rehypothecable security as collateral, with no haircut, is equivalent to posting cash collateral that earns the security's spot overnight repo rate: the effective discount rate of the collateralised trade is that repo rate. This is the extension to non-cash collateral suggested in the footnote of \autoref{ssec:rn_pricing} (see also Piterbarg \cite{Piterbarg:Cooking}); it is an assumption on how the collateral is financed, not a consequence of the framework.
+\end{hypo}
+
 \begin{prop}[Discount curve of bond-collateralised derivatives]\label{prop:repo_bond_collateral}
-A derivative collateralised by a rehypothecable bond, with the collateral financed by rolling spot overnight repo (no haircut, $\bar z = 0$), has effective discount rate $\bar r$: its discount curve is the bond curve $\bar p$.
+Under the Hypothesis "Security collateral", a derivative collateralised by a bond of the curve (no haircut, $\bar z = 0$) has effective discount rate $\bar r$: its discount curve is the bond curve $\bar p$.
 \end{prop}
 
 \begin{proof}
-By \autoref{prop:repo_overnight}, the collateral earns $\bar r_u$ at each $u$. The effective discount rate is the rate earned on the collateral (\autoref{ssec:rn_pricing} and its footnote on non-cash collateral), so $V_t = \EE_t[e^{-\int_t^T\bar r_u du}V_T]$, and $V_T = 1$ gives $\bar p^T_t$.
+By \autoref{prop:repo_overnight}, the spot overnight repo rate of the bond at $u$ is $\bar r_u$. By the Hypothesis, $V_t = \EE_t[e^{-\int_t^T\bar r_u du}V_T]$, and $V_T = 1$ gives $\bar p^T_t$.
 \end{proof}
 
 \begin{rema}[Term repo curve or bond curve]
-McCloud (\S4) proposes the extrapolated term repo curve $\hat p^e$ for discounting bond-collateralised derivatives. That corresponds to financing the collateral with term repos locked at inception. Under rolling overnight financing, \autoref{prop:repo_bond_collateral} gives $\bar p$, and the two differ by the maturity adjustment $M^{e\infty}$. The size of the difference is shown in the notebook \texttt{repo\_convexity.py} (in \texttt{python/notebooks}).
+McCloud (\S4) proposes the extrapolated term repo curve $\hat p^e$ for discounting bond-collateralised derivatives. That corresponds to a different financing assumption than the Hypothesis "Security collateral": the collateral financed with term repos locked at inception. Under rolling overnight financing, \autoref{prop:repo_bond_collateral} gives $\bar p$, and the two differ by the maturity adjustment $M^{e\infty}$. Which one applies is a question about how the collateral is actually funded, not one the model decides. The size of the difference is shown in the notebook \texttt{repo\_convexity.py} (in \texttt{python/notebooks}).
 \end{rema}
 
 \subsection{Verification}
