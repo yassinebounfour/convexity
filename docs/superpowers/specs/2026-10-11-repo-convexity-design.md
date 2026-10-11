@@ -61,7 +61,7 @@ McCloud §3.
 ## Repo contract
 
 Forward-starting repo on the bond maturing at T, agreed at t, over [s, e] with t ≤ s < e ≤ T and
-accrual δ:
+accrual fraction δ:
 
 - at s: one unit of cash is exchanged for 1/p̄^T_s bonds;
 - at e: the bonds are returned against 1 + δ f^{eT}_{ts}.
@@ -69,6 +69,12 @@ accrual δ:
 The repo is discounted at r (McCloud (10)). Its zero value gives
 
     1 + δ f = E^{p,e}_t[p̄^T_e / p̄^T_s] = (p̄^s_t / p̄^e_t) K^{repo}_t(s, e, T)
+
+**Time and day count.** Model time is in ACT/365 years. The model interval e - s drives the
+convexity. The accrual fraction δ only converts the forward price ratio into a quoted rate. It is
+a parameter of the contract, separate from e - s, and defaults to ACT/360: δ = (e - s)·365/360,
+the USD and EUR repo convention (GBP uses ACT/365, so δ = e - s). The notes state that the
+convexity K^{repo} does not depend on δ.
 
 where E^{p,e} is the e-forward measure of the derivative curve and K^{repo} is the forward
 collateral convexity Q^{bond→OIS}_{t,e}[p̄^T_e / p̄^T_s].
@@ -155,7 +161,7 @@ The section must keep the build at 0 errors. It adds no new warnings beyond the 
 | `BondCurves` | initial curves p̄_0 (bond) and p_0 (OIS), e.g. flat or `curves.PiecewiseFlatCurve` |
 | `repo_convexity(m, t, s, e, T)` | ln K^{repo}, Proposition 2, via `covint` |
 | `maturity_adjustment`, `forwardness_adjustment` | M and F (Corollary) |
-| `repo_rate(m, curves, t, s, e, T)` | zero-coupon repo rate (simple compounding, δ = e - s) |
+| `repo_rate(m, curves, t, s, e, T)` | zero-coupon repo rate, simple compounding with accrual δ = `accrual(s, e)`; `day_count="ACT/360"` (default) or `"ACT/365"` |
 | `repo_discount_factor(m, curves, e, T)` | p̂^{eT}_0 |
 | `hw_B`, `hw_M`, `hw_F`, `hw_repo_rate`, `hw_extrapolate`, `hw_interpolate_*` | McCloud's closed forms, written independently of `lgcm` |
 | `CouponBond(times, cashflows)` | price on the bond curve |
@@ -177,6 +183,8 @@ The section must keep the build at 0 errors. It adds no new warnings beyond the 
   measured.
 - Monte Carlo: the repo rate is within 4 s.e. of Proposition 2 (fixed seed, a control variate if
   needed). Negative control: K = 1 is rejected (> 4 s.e.) at a material vol.
+- Day count: K^{repo} is the same for ACT/360 and ACT/365, and the quoted rates are in the ratio
+  365/360 (exact).
 - Bond-collateralised discounting (item 6): the overnight-repo limit of `repo_rate` (e → s)
   converges to the bond forward rate, with the rate measured.
 
@@ -188,7 +196,7 @@ The parameters are illustrative, not live data: flat curves, and Hull–White pa
 McCloud's order of magnitude. Sections:
 
 1. Setting and parameters (sliders for ρ, σ, ε, θ, κ).
-2. Repo convexity in bp against forwardness τ = s - t, repo term δ = e - s and residual maturity
+2. Repo convexity in bp against forwardness τ = s - t, repo term e - s and residual maturity
    μ = T - e, with the split into M and F.
 3. Sensitivity to ρ, κ, θ.
 4. Bond and repo discount curves, the basis in bp, and the extrapolation beyond the last repo quote
@@ -202,5 +210,5 @@ The charts follow the dataviz skill.
 ## Out of scope
 
 Haircuts, default and recovery, special-vs-GC repo dynamics (z̄ is set to zero except in the
-Remark), calibration of the basis vol and correlation to repo quotes, and day counts and calendars
-(δ = e - s).
+Remark), calibration of the basis vol and correlation to repo quotes, calendars, business-day adjustment
+and settlement lags. Day counts are limited to ACT/360 and ACT/365 accrual on the model time axis.
