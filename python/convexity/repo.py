@@ -291,16 +291,21 @@ def _gross(curves, s, e, EY):
 
 
 def coupon_repo_rate(rm, curves, bond, s, e, day_count="ACT/360"):
-    """Frozen-weights approximation (asymptotic, Proposition "Frozen weights"): the basket sum_j den_j is
-    replaced by the lognormal with the same mean and the loading sum_j w_j beta_j, w_j its weights at the mean."""
+    """Frozen-weights approximation (asymptotic, Remark "Frozen weights"): the basket sum_j den_j is replaced
+    by the lognormal with the same mean and the loading sum_j w_j beta_j, w_j its weights at the mean, and the
+    same approximation of E[den/den] = 1 is used as a control: E[Y] ~ 1 + FW(num) - FW(den). The control
+    makes it exact when num = den (b = 0) and for a single cash flow."""
     _check_bond(bond, s, e)
     num, den = _coupon_terms(rm, curves, bond, s, e)
     mu, P = _ois_forward_law(rm, s)
     dm = np.array([c * math.exp(b @ mu + d + 0.5 * b @ P @ b) for c, b, d in den])
     Dbar = dm.sum()
     bbar = sum(w * b for w, (_, b, _) in zip(dm / Dbar, den))
-    EY = sum(c * math.exp(a @ mu + d + 0.5 * bbar @ P @ bbar + 0.5 * (a - bbar) @ P @ (a - bbar))
-             for c, a, d in num) / Dbar
+
+    def fw(terms):          # frozen-weights E[sum_k terms_k / den]
+        return sum(c * math.exp(a @ mu + d + 0.5 * bbar @ P @ bbar + 0.5 * (a - bbar) @ P @ (a - bbar))
+                   for c, a, d in terms) / Dbar
+    EY = 1.0 + fw(num) - fw(den)
     return (_gross(curves, s, e, EY) - 1.0) / accrual(s, e, day_count)
 
 

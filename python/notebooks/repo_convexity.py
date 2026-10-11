@@ -192,30 +192,40 @@ def _(mo):
     ## 4. Coupon bonds
 
     Repo on a 10Y bond with semi-annual coupons over [1.2Y, 1.6Y] (the coupon at 1.5Y falls in the window and is
-    passed through to the bond's owner). Exact: Gauss–Hermite quadrature (Proposition "Coupon repo rate"). Approximation: frozen
-    weights, which is asymptotic: its error in the rate grows like vol⁴ (measured, not proved). At these parameters it
-    still misses a visible fraction of the coupon effect; the title shows the largest gap relative to the exact convexity.
+    passed through to the bond's owner, discounted at $r$). The gap to the bond forward has two parts:
+
+    - the **ρ = 0 part** (grey): the passed-through coupon is discounted at $r$ while the bonds are priced at $\bar r$, so
+      the basis moves the rate even without any correlation;
+    - the **convexity** (the rest), driven by the correlation of the bond rate and the basis.
+
+    Exact: Gauss–Hermite quadrature (Proposition "Coupon repo rate"). Approximation: frozen weights with the control
+    $\mathbb E[D/D] = 1$ (Definition "Frozen weights"); its error in the rate grows like vol⁴ (measured, not proved).
     """)
     return
 
 
 @app.cell
-def _(C, cv, np, plt, repo, rm):
+def _(C, cv, eps, kappa, np, plt, repo, rm, sigma, theta):
     _cps = np.linspace(0.0, 0.08, 9)
     _s, _e = 1.2, 1.6
     _fwd = (cv.Zbond(_s) / cv.Zbond(_e) - 1.0) / repo.accrual(_s, _e)
-    _ex, _ap = [], []
+    _r0 = repo.RepoModel.hull_white(theta.value, sigma.value, kappa.value, eps.value, 0.0)
+    _ex, _ap, _z0 = [], [], []
     for _c in _cps:
         _b = repo.CouponBond.fixed(10.0, _c, 2) if _c > 0 else repo.CouponBond((10.0,), (1.0,))
-        _ex.append(1e4 * (repo.coupon_repo_rate_exact(rm, cv, _b, _s, _e) - _fwd))
-        _ap.append(1e4 * (repo.coupon_repo_rate(rm, cv, _b, _s, _e) - _fwd))
+        _base = repo.coupon_repo_rate_exact(_r0, cv, _b, _s, _e)
+        _z0.append(1e4 * (_base - _fwd))
+        _ex.append(1e4 * (repo.coupon_repo_rate_exact(rm, cv, _b, _s, _e) - _base))
+        _ap.append(1e4 * (repo.coupon_repo_rate(rm, cv, _b, _s, _e) - repo.coupon_repo_rate(_r0, cv, _b, _s, _e)))
     _fig, _ax = plt.subplots(figsize=(6.5, 3.9))
-    _ax.plot(1e2 * _cps, _ex, color=C["exact"], marker="o", label="exact (quadrature)")
-    _ax.plot(1e2 * _cps, _ap, color=C["approx"], ls="--", label="frozen weights")
-    _gap = max(abs(a - x) / abs(x) for a, x in zip(_ap, _ex))
-    _ax.set(title=f"repo convexity of a 10Y coupon bond\nfrozen weights off by up to {100 * _gap:.0f}% of the exact value",
-            xlabel="coupon (%)", ylabel="convexity (bp)")
-    _ax.legend(frameon=False)
+    _ax.plot(1e2 * _cps, _z0, color=C["grey"], marker="s", label="ρ = 0 part (basis on the passed-through coupon)")
+    _ax.plot(1e2 * _cps, _ex, color=C["exact"], marker="o", label="convexity, exact (quadrature)")
+    _ax.plot(1e2 * _cps, _ap, color=C["approx"], ls="--", label="convexity, frozen weights")
+    _ax.axhline(0, color=C["grey"], lw=0.8)
+    _gap = max(abs(a - x) for a, x in zip(_ap, _ex))
+    _ax.set(title=f"repo rate minus bond forward, 10Y coupon bond\nfrozen weights off by at most {_gap:.4f}bp",
+            xlabel="coupon (%)", ylabel="contribution (bp)")
+    _ax.legend(frameon=False, fontsize=8)
     _fig.tight_layout()
     _fig
     return

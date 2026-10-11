@@ -225,6 +225,9 @@ def test_zero_basis_gives_bond_forward():
     cv = repo.BondCurves.flat(rbar=0.035, b=0.0)
     fwd = (cv.Zbond(1.3) / cv.Zbond(2.1) - 1.0) / repo.accrual(1.3, 2.1)
     assert repo.coupon_repo_rate_exact(rm, cv, BOND, 1.3, 2.1) == pytest.approx(fwd, rel=1e-13)
+    for s, e in [(1.3, 2.1), (1.2, 1.6)]:           # the approximation keeps the identity (control E[D/D] = 1)
+        fwd = (cv.Zbond(s) / cv.Zbond(e) - 1.0) / repo.accrual(s, e)
+        assert repo.coupon_repo_rate(rm, cv, BOND, s, e) == pytest.approx(fwd, rel=1e-13, abs=0)
 
 
 def test_gauss_hermite_converged(hw):
@@ -234,8 +237,8 @@ def test_gauss_hermite_converged(hw):
 
 
 def test_frozen_weights_error_order():
-    """Asymptotic, not proved. Measured: errors 3.73e-4, 2.31e-5, 1.44e-6 at vol scale 4, 2, 1
-    (ratios 16.2, 16.0): O(lambda^4) absolute in the rate."""
+    """Asymptotic, not proved. Measured (with the control E[den/den] = 1): errors 2.62e-5, 1.62e-6, 1.01e-7
+    at vol scale 4, 2, 1 (ratios 16.2, 16.0): O(lambda^4) absolute in the rate."""
     errs = []
     for sc in [4.0, 2.0, 1.0]:
         rm = repo.RepoModel.hull_white(0.05, 0.01 * sc, 0.4, 0.008 * sc, -0.5)
@@ -261,11 +264,11 @@ def test_mc_zero_coupon_repo_rate(seed):
 
 @pytest.mark.parametrize("seed", [1, 2, 3, 4])
 def test_mc_coupon_repo_rate(seed):
-    """Measured (2^18 paths): z = -0.88, +1.42, +0.72, -0.57 against the exact quadrature; the frozen-weights
-    approximation (-1.17bp off at this vol scale) is rejected at -8.47, -6.09, -6.82, -8.14 standard errors."""
+    """Measured (2^18 paths): z = -0.88, +1.42, +0.72, -0.57 against the exact quadrature. The frozen-weights
+    approximation with its control is also within 4 s.e. at this vol scale (z = -1.41, +0.89, +0.19, -1.10)."""
     r, se = repo.mc_repo_rate(MC_HW, CURVES, BOND, 1.3, 2.1, n_paths=2**18, seed=seed)
     assert abs(r - repo.coupon_repo_rate_exact(MC_HW, CURVES, BOND, 1.3, 2.1)) < 4 * se
-    assert abs(r - repo.coupon_repo_rate(MC_HW, CURVES, BOND, 1.3, 2.1)) > 4 * se
+    assert abs(r - repo.coupon_repo_rate(MC_HW, CURVES, BOND, 1.3, 2.1)) < 4 * se
 
 
 def test_coupon_on_window_boundaries_exact_vs_mc():
