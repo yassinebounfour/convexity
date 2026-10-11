@@ -242,3 +242,53 @@ def test_frozen_weights_error_order():
         errs.append(repo.coupon_repo_rate(rm, CURVES, BOND, 1.3, 2.1) - repo.coupon_repo_rate_exact(rm, CURVES, BOND, 1.3, 2.1))
     r = [errs[0] / errs[1], errs[1] / errs[2]]
     assert all(14.0 < x < 18.0 for x in r), (errs, r)
+
+
+# --------------------------------------------------------------------------- Monte Carlo
+MC_HW = repo.RepoModel.hull_white(0.05, 0.03, 0.4, 0.024, -0.5)   # vol scale 3: the convexity is ~1.2bp
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4])
+def test_mc_zero_coupon_repo_rate(seed):
+    """Measured (2^18 paths): z = -1.39, +0.57, +0.45, -0.23 against Proposition "Repo rate";
+    the bond forward (K = 1) is rejected at -9.81, -7.75, -7.94, -8.65 standard errors."""
+    s, e, T = 1.3, 2.1, 7.5
+    r, se = repo.mc_repo_rate(MC_HW, CURVES, T, s, e, n_paths=2**18, seed=seed)
+    assert abs(r - repo.repo_rate(MC_HW, CURVES, s, e, T)) < 4 * se
+    no_conv = (CURVES.Zbond(s) / CURVES.Zbond(e) - 1.0) / repo.accrual(s, e)
+    assert abs(r - no_conv) > 4 * se
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4])
+def test_mc_coupon_repo_rate(seed):
+    """Measured (2^18 paths): z = -0.88, +1.42, +0.72, -0.57 against the exact quadrature; the frozen-weights
+    approximation (-1.17bp off at this vol scale) is rejected at -8.47, -6.09, -6.82, -8.14 standard errors."""
+    r, se = repo.mc_repo_rate(MC_HW, CURVES, BOND, 1.3, 2.1, n_paths=2**18, seed=seed)
+    assert abs(r - repo.coupon_repo_rate_exact(MC_HW, CURVES, BOND, 1.3, 2.1)) < 4 * se
+    assert abs(r - repo.coupon_repo_rate(MC_HW, CURVES, BOND, 1.3, 2.1)) > 4 * se
+
+
+def test_coupon_on_window_boundaries_exact_vs_mc():
+    """Coupons exactly at s (to the seller) and at e (passed through, not returned).
+    Measured: z = -3.03 at seed 5 (a tail draw: over 40 seeds at 2^16 paths the z have mean 0.13, std 1.06)."""
+    b = repo.CouponBond((1.0, 2.0, 3.0, 4.0), (0.06, 0.06, 0.06, 1.06))
+    r, se = repo.mc_repo_rate(MC_HW, CURVES, b, 1.0, 2.0, n_paths=2**18, seed=5)
+    assert abs(r - repo.coupon_repo_rate_exact(MC_HW, CURVES, b, 1.0, 2.0)) < 4 * se
+
+
+# --------------------------------------------------------------------------- overnight repo (bond-collateralised derivatives)
+def test_spot_overnight_repo_is_bond_rate(hw):
+    """Proposition "Overnight repo": ln K_0(0, h, T) = O(h^2), so the spot overnight repo rate is rbar_0."""
+    k = [repo.repo_convexity(hw, 0.0, 0.0, h, 10.0) for h in (1 / 365, 0.5 / 365)]
+    assert k[0] / k[1] == pytest.approx(4.0, rel=1e-2)
+    assert abs(k[0]) * 365 < 1e-6
+
+
+def test_forward_overnight_repo_limit(hw):
+    """ln K_0(s, s+h, T)/h -> -rho sigma eps (E(theta, s) - E(theta + kappa, s))/kappa != 0 (Hull-White)."""
+    from convexity.lgcm import E
+    s = 3.0
+    lim = -HW["rho"] * HW["sigma"] * HW["eps"] * (E(HW["theta"], s) - E(HW["theta"] + HW["kappa"], s)) / HW["kappa"]
+    for h, tol in [(1 / 365, 2e-2), (0.1 / 365, 2e-3)]:
+        assert repo.repo_convexity(hw, 0.0, s, s + h, 10.0) / h == pytest.approx(lim, rel=tol)
+    assert lim > 1e-4

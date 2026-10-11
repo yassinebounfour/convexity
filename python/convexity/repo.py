@@ -30,6 +30,8 @@ import numpy as np
 
 from . import transitions
 from .lgcm import Model
+from .montecarlo import Simulator, cv_mean_and_stderr
+from .schemes import ExactScheme
 
 ACCRUAL = {"ACT/360": 365.0 / 360.0, "ACT/365": 1.0}
 
@@ -317,3 +319,31 @@ def coupon_repo_rate_exact(rm, curves, bond, s, e, n_gh=40, day_count="ACT/360")
     N = sum(c * np.exp(Z @ a + d) for c, a, d in num)
     D = sum(c * np.exp(Z @ b + d) for c, b, d in den)
     return (_gross(curves, s, e, float(W @ (N / D))) - 1.0) / accrual(s, e, day_count)
+
+
+# ---------------------------------------------------------------------- Monte Carlo
+def mc_repo_rate(rm, curves, bond, s, e, n_paths=2**16, seed=7, day_count="ACT/360"):
+    """Repo rate by Monte Carlo (exact LGCM scheme, antithetic). `bond` is a CouponBond or a maturity T.
+
+    Control variates with exact means: E[D_{0,e}] = p_{0,e}, and the same repo discounted at rbar
+    (the bond-collateralised repo) is worth pbar_{0,s}. Returns (rate, stderr)."""
+    if not isinstance(bond, CouponBond):
+        bond = CouponBond((float(bond),), (1.0,))
+    _check_bond(bond, s, e)
+    sim = Simulator(rm.lgcm, scheme=ExactScheme())
+    flows = list(zip(bond.times, bond.cashflows))
+    paths = sim.simulate_dates([s, e] + [T for T, _ in flows if s < T <= e], n_paths, seed=seed)
+    rs, re_ = paths(s), paths(e)
+    Pbar_s = sum(c * sim.discount(rs, curves, "ff", T) for T, c in flows if T > s)
+    Pex_e = sum(c * sim.discount(re_, curves, "ff", T) for T, c in flows if T > e)
+    De, Dbe = sim.deflator(re_, curves, "f", "d"), sim.deflator(re_, curves, "f", "f")
+    x, xbar = De * Pex_e / Pbar_s, Dbe * Pex_e / Pbar_s
+    for T, c in flows:
+        if s < T <= e:
+            rT = paths(T)
+            x = x + sim.deflator(rT, curves, "f", "d") * c / Pbar_s
+            xbar = xbar + sim.deflator(rT, curves, "f", "f") * c / Pbar_s
+    pe = float(curves.Zois(e))
+    g, se = cv_mean_and_stderr(x / pe, [De / pe, xbar / pe], [1.0, float(curves.Zbond(s)) / pe])
+    d = accrual(s, e, day_count)
+    return (g - 1.0) / d, se / d
