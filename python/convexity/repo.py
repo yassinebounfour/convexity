@@ -28,6 +28,7 @@ from typing import Callable
 
 import numpy as np
 
+from . import transitions
 from .lgcm import Model
 
 ACCRUAL = {"ACT/360": 365.0 / 360.0, "ACT/365": 1.0}
@@ -202,3 +203,117 @@ def hw_maturity_weight(theta, mu):
 def hw_forwardness_weight(theta, kappa, tau):
     """McCloud (43): weight exp(-(theta + kappa)(s - t)) of the spot-starting gross rate."""
     return math.exp(-(theta + kappa) * tau)
+
+
+# ---------------------------------------------------------------------- coupon bonds
+@dataclass(frozen=True)
+class CouponBond:
+    """Fixed cashflows c_k at T_k (the last one includes the principal)."""
+    times: tuple
+    cashflows: tuple
+
+    def __post_init__(self):
+        T, c = np.asarray(self.times, float), np.asarray(self.cashflows, float)
+        if T.ndim != 1 or T.size == 0 or T.shape != c.shape:
+            raise ValueError("times and cashflows must be non-empty and of the same length")
+        if np.any(np.diff(T) <= 0) or T[0] <= 0 or np.any(c <= 0):
+            raise ValueError("times must be increasing and positive, cashflows positive")
+
+    @classmethod
+    def fixed(cls, maturity, coupon, freq=1, notional=1.0):
+        n = int(round(maturity * freq))
+        times = tuple(t for t in (maturity - k / freq for k in range(n - 1, -1, -1)) if t > 1e-12)
+        flows = tuple(notional * coupon / freq + (notional if i == len(times) - 1 else 0.0) for i in range(len(times)))
+        return cls(times, flows)
+
+    def price0(self, curves):
+        return float(sum(c * curves.Zbond(T) for T, c in zip(self.times, self.cashflows)))
+
+
+def _check_bond(bond, s, e):
+    """The bond must mature at or after e (a last flow at e is redeemed and passed through)."""
+    if max(bond.times) < e:
+        raise ValueError(f"the bond must mature at or after the repo end e = {e}, got maturity {max(bond.times)}")
+    _check_dates(0.0, s, e, max(bond.times))
+
+
+def _ois_forward_law(rm, s):
+    """Mean and covariance of the rate state z_s under the OIS s-forward measure Q^{p,s}.
+
+    The deflator of a payment at s is p_{0,s} exp(z^x_s - int r^d) (Simulator.deflator, ccy f under d
+    collateral), so Q^{p,s} tilts the risk-neutral law of the state by a = e_{zx} - e_{Id}."""
+    m = rm.lgcm
+    if s <= 0:
+        return np.zeros(m.nr), np.zeros((m.nr, m.nr))
+    grid = np.unique(np.r_[0.0, [k for k in m.knots if 0 < k < s], s])
+    mX, P, ix = transitions.propagate(m, grid, "RN")
+    a = np.zeros(ix["n"])
+    a[ix["iZX"]], a[ix["iID"]] = 1.0, -1.0
+    return (mX + P @ a)[: m.nr], P[: m.nr, : m.nr]
+
+
+def _coupon_terms(rm, curves, bond, s, e):
+    """Y(z) = sum_k num_k(z) / sum_j den_j(z) with PV_0 = p_{0,s} E^{p,s}[Y(z_s)] = p_{0,e} (1 + delta f).
+
+    Proposition "Coupon repo rate": conditional on F_s, the bonds bought at s are worth P^ex_e at e
+    (flows after e), whose OIS-discounted value at s is sum_k c_k p^e_s (pbar^{T_k}_s / pbar^e_s) K^{repo}_s(s, e, T_k);
+    coupons in (s, e] are passed through at T_k, worth c_k p^{T_k}_s; a coupon at s belongs to the seller.
+    Each term is (coef, alpha, const) for coef exp(alpha.z + const)."""
+    m = rm.lgcm
+    Y, v = m.Y(s), m.vfc(s)
+
+    def ln(kind, T):        # ln Z^{kind}_{s,T} = a.z + c
+        a, c = m.lnZ(kind, s, T, Y, v)
+        Z0 = curves.Zbond if kind == "ff" else curves.Zois
+        return a, c + math.log(Z0(T) / Z0(s))
+
+    num, den = [], []
+    a_pe, c_pe = ln("fd", e)
+    a_be, c_be = ln("ff", e)
+    for T, c in zip(bond.times, bond.cashflows):
+        if T <= s:
+            continue
+        a_b, c_b = ln("ff", T)
+        den.append((c, a_b, c_b))
+        if T > e:
+            lk = repo_convexity(rm, s, s, e, T)
+            num.append((c, a_pe + a_b - a_be, c_pe + c_b - c_be + lk))
+        else:
+            a_p, c_p = ln("fd", T)
+            num.append((c, a_p, c_p))
+    return num, den
+
+
+def _gross(curves, s, e, EY):
+    return float(curves.Zois(s) * EY / curves.Zois(e))
+
+
+def coupon_repo_rate(rm, curves, bond, s, e, day_count="ACT/360"):
+    """Frozen-weights approximation (asymptotic, Proposition "Frozen weights"): the basket sum_j den_j is
+    replaced by the lognormal with the same mean and the loading sum_j w_j beta_j, w_j its weights at the mean."""
+    _check_bond(bond, s, e)
+    num, den = _coupon_terms(rm, curves, bond, s, e)
+    mu, P = _ois_forward_law(rm, s)
+    dm = np.array([c * math.exp(b @ mu + d + 0.5 * b @ P @ b) for c, b, d in den])
+    Dbar = dm.sum()
+    bbar = sum(w * b for w, (_, b, _) in zip(dm / Dbar, den))
+    EY = sum(c * math.exp(a @ mu + d + 0.5 * bbar @ P @ bbar + 0.5 * (a - bbar) @ P @ (a - bbar))
+             for c, a, d in num) / Dbar
+    return (_gross(curves, s, e, EY) - 1.0) / accrual(s, e, day_count)
+
+
+def coupon_repo_rate_exact(rm, curves, bond, s, e, n_gh=40, day_count="ACT/360"):
+    """Exact up to Gauss-Hermite quadrature (tensor grid of n_gh^nr nodes) in the rate state z_s under Q^{p,s}."""
+    _check_bond(bond, s, e)
+    num, den = _coupon_terms(rm, curves, bond, s, e)
+    mu, P = _ois_forward_law(rm, s)
+    x, w = np.polynomial.hermite_e.hermegauss(n_gh)
+    w = w / w.sum()
+    nr = len(mu)
+    X = np.stack(np.meshgrid(*([x] * nr), indexing="ij"), -1).reshape(-1, nr)
+    W = np.prod(np.stack(np.meshgrid(*([w] * nr), indexing="ij"), -1).reshape(-1, nr), axis=1)
+    lam, U = np.linalg.eigh(P)
+    Z = mu + X @ (U * np.sqrt(np.clip(lam, 0, None))).T
+    N = sum(c * np.exp(Z @ a + d) for c, a, d in num)
+    D = sum(c * np.exp(Z @ b + d) for c, b, d in den)
+    return (_gross(curves, s, e, float(W @ (N / D))) - 1.0) / accrual(s, e, day_count)

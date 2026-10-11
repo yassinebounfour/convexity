@@ -184,3 +184,61 @@ def test_interpolation_fails_beyond_hull_white(pw):
     Finf = repo.forwardness_adjustment(pw, 0.0, 30.0, 31.0, 36.0)
     ratios = [repo.forwardness_adjustment(pw, 0.0, tau, tau + 1, tau + 6) / Finf for tau in (0.5, 1, 3, 6, 10)]
     assert max(ratios) > 1.2 and np.any(np.diff(ratios) < 0)
+
+
+# --------------------------------------------------------------------------- coupon bonds
+BOND = repo.CouponBond.fixed(10.0, 0.05, 2)      # 10Y semi-annual 5%: coupons at 1.5 and 2.0 fall in (1.3, 2.1]
+
+
+def test_coupon_bond_construction():
+    assert BOND.times[0] == pytest.approx(0.5) and BOND.times[-1] == pytest.approx(10.0) and len(BOND.times) == 20
+    assert BOND.cashflows[-1] == pytest.approx(1.025) and BOND.cashflows[0] == pytest.approx(0.025)
+    with pytest.raises(ValueError, match="same length"):
+        repo.CouponBond((1.0, 2.0), (1.0,))
+    with pytest.raises(ValueError, match="increasing"):
+        repo.CouponBond((2.0, 1.0), (0.05, 1.05))
+    with pytest.raises(ValueError, match="after the repo end"):
+        repo.coupon_repo_rate(repo.RepoModel.hull_white(**HW), CURVES, repo.CouponBond((1.0, 2.0), (0.05, 1.05)), 1.3, 2.1)
+
+
+def test_ois_forward_law_is_normalised(pw):
+    """E^{RN}[D_{0,s}] = p_{0,s}: the tilt a = e_zx - e_Id has a.m + a'Pa/2 = 0."""
+    from convexity import transitions
+    m = pw.lgcm
+    mX, P, ix = transitions.propagate(m, [0.0, 1.0, 2.5], "RN")
+    a = np.zeros(ix["n"]); a[ix["iZX"]], a[ix["iID"]] = 1.0, -1.0
+    assert abs(a @ mX + 0.5 * a @ P @ a) < 1e-15
+
+
+@pytest.mark.parametrize("s,e,T", [(1.3, 2.1, 7.5), (0.0, 0.5, 3.0), (2.0, 3.0, 3.0)])
+def test_single_cashflow_is_zero_coupon(hw, s, e, T):
+    """A one-cashflow bond: both the exact and the frozen-weights rates are Proposition "Repo rate"."""
+    b = repo.CouponBond((T,), (1.0,))
+    zc = repo.repo_rate(hw, CURVES, s, e, T)
+    assert repo.coupon_repo_rate_exact(hw, CURVES, b, s, e) == pytest.approx(zc, rel=1e-13)
+    assert repo.coupon_repo_rate(hw, CURVES, b, s, e) == pytest.approx(zc, rel=1e-13)
+
+
+def test_zero_basis_gives_bond_forward():
+    """b = 0 (eps = 0, flat zero basis): Y_s = 1, so 1 + delta f = pbar_{0,s}/pbar_{0,e} for any coupons."""
+    rm = repo.RepoModel.hull_white(0.05, 0.01, 0.4, 0.0, -0.5)
+    cv = repo.BondCurves.flat(rbar=0.035, b=0.0)
+    fwd = (cv.Zbond(1.3) / cv.Zbond(2.1) - 1.0) / repo.accrual(1.3, 2.1)
+    assert repo.coupon_repo_rate_exact(rm, cv, BOND, 1.3, 2.1) == pytest.approx(fwd, rel=1e-13)
+
+
+def test_gauss_hermite_converged(hw):
+    a = repo.coupon_repo_rate_exact(hw, CURVES, BOND, 1.3, 2.1, n_gh=40)
+    b = repo.coupon_repo_rate_exact(hw, CURVES, BOND, 1.3, 2.1, n_gh=60)
+    assert abs(a - b) < 1e-14
+
+
+def test_frozen_weights_error_order():
+    """Asymptotic, not proved. Measured: errors 3.73e-4, 2.31e-5, 1.44e-6 at vol scale 4, 2, 1
+    (ratios 16.2, 16.0): O(lambda^4) absolute in the rate."""
+    errs = []
+    for sc in [4.0, 2.0, 1.0]:
+        rm = repo.RepoModel.hull_white(0.05, 0.01 * sc, 0.4, 0.008 * sc, -0.5)
+        errs.append(repo.coupon_repo_rate(rm, CURVES, BOND, 1.3, 2.1) - repo.coupon_repo_rate_exact(rm, CURVES, BOND, 1.3, 2.1))
+    r = [errs[0] / errs[1], errs[1] / errs[2]]
+    assert all(14.0 < x < 18.0 for x in r), (errs, r)
