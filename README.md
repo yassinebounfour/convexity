@@ -7,7 +7,7 @@ derivations numerically.
 |---|---|
 | `docs/CollateralDiscounting.tex` | HJM framework with multiple currencies and stochastic collateral; the Quasi-Gaussian and Linear Gaussian Collateral Models (QGCM / LGCM); convexity adjustments, Gaussian approximations of swap rates and currency basis spreads, simulation, calibration |
 | `docs/smfart.cls`, `docs/smfbook.cls` | Société Mathématique de France document classes (`CollateralDiscounting.tex` itself uses `amsart`) |
-| `python/convexity/` | numerical companion: LGCM, closed-form covariance integrals, exact transitions, moment-ODE benchmark, Gaussian approximations, a vectorised Monte Carlo simulator (QGCM and LGCM) and a payoff hierarchy. See its `README.md` |
+| `python/convexity/` | numerical companion: LGCM, closed-form covariance integrals, exact transitions, moment-ODE benchmark, Gaussian approximations, a vectorised Monte Carlo simulator (QGCM and LGCM), a payoff hierarchy, compounded overnight (RFR) coupon convexities with an exact benchmark, and an LGCM calibration with three example markets (EURUSD, GBPUSD, USDJPY with inverted FX quotation). See its `README.md` |
 
 ## Usage
 

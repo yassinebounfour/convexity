@@ -31,9 +31,10 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `pricers.py` | `DeterministicPricer` (DCB: K = 1, no options), `LGCMPricer` (Libor convexities, exact one factor swaption, Gaussian swaption variance with separate fixed/float schedules, FX vol, CB vol exact and Gaussian) |
 | `curve_calibration.py` | generic sequential curve bootstrap with a convexity provider; `calibrate_curves(quotes)` is the DCB market practice |
 | `calibration.py` | `ModelSpec`, `BlockSpec`, `default_spec`, `calibrate(quotes, spec) -> Calibration`: Algorithm "LGCM calibration" of the notes |
-| `market_data.py` | `example_setup()`, `example_quotes()`: illustrative USD (SOFR) / EUR (ESTR, EURIBOR 3M) market, not live data |
+| `market_data.py` | `example_setup()`, `example_quotes(market)` for `MARKETS` = EURUSD (USD SOFR / EUR ESTR, EURIBOR 3M), GBPUSD, USDJPY (inverted quotation): illustrative, not live data |
 | `calibration_check.py` | `analytic_report(cal)` and `mc_report(cal, n_paths, seed, compounding_step=None)`: every quote repriced in closed form and by Monte Carlo (rows with market, model, error, standard error); compounded RFR coupons valued on paths by `CouponPaths` (fixing dates streamed, exact controls), `coupon_convexity_mc` for one coupon |
 | `schemes.py` (`ExactScheme.simulate_dates`), `montecarlo.py` (`Simulator.simulate_dates`) | the LGCM state at every date of a grid along the same paths, in one pass; `stream` dates are passed to `on_date` without being stored |
+| `tests/test_ois.py` | compounded RFR coupons: closed forms against the exact benchmark, coupon-aware curves, pricers and calibration, the three markets, inverted FX, Monte Carlo of compounded coupons |
 | `tests/test_curves.py` | curves, instruments and the deterministic curve bootstrap |
 | `tests/test_calibration.py` | LGCM pricer, calibration and repricing checks (the Monte Carlo ones are marked `slow`) |
 | `repo.py` | bonds and repo (McCloud, *Repo convexity*): `RepoModel` (LGCM with block f = bond curve, c = discounting basis, no d factor, zero FX vol), `BondCurves`; `repo_convexity` (ln K^{repo}), `maturity_adjustment`, `forwardness_adjustment`, `repo_rate` (ACT/360 or ACT/365 accrual), `repo_discount_factor`; McCloud's Hull-White closed forms `hw_*`; `CouponBond`, `coupon_repo_rate` (frozen weights) and `coupon_repo_rate_exact` (Gauss–Hermite); `mc_repo_rate` |
@@ -66,6 +67,11 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | Proposition "Coupon repo rate", Definition and Remark "Frozen weights" | `test_single_cashflow_is_zero_coupon`, `test_zero_basis_gives_bond_forward`, `test_frozen_weights_error_order`, `test_mc_coupon_repo_rate`, `test_coupon_on_window_boundaries_exact_vs_mc` | Gauss–Hermite (converged to 1e-14); frozen weights with the control E[D/D] = 1 keep the b = 0 identity (1e-13), error O(lambda^4) (measured ratios 16.2, 16.0, not proved); exact and frozen weights both within 4 s.e. of MC at vol scale 3 |
 | Proposition "Overnight repo" | `test_spot_overnight_repo_is_bond_rate`, `test_forward_overnight_repo_limit` | spot: O(h^2); forward: Hull–White closed-form limit |
 | Monte Carlo of the zero-coupon repo rate | `test_mc_zero_coupon_repo_rate` | 4 s.e. (seeds 1–4, 2^18 paths); bond forward (K = 1) rejected at 7.8 to 9.8 s.e. |
+| Compounded overnight (RFR) coupon convexity | `test_closed_form_matches_exact_gaussian_benchmark`, `test_partially_accrued_period`, `test_benchmark_native_coupon_is_model_free`, `test_benchmark_convexity_does_not_depend_on_the_state_at_t`, `test_vectorised_daily_convexity_matches_scalar_oracle` | `benchmarks.coupon_value_exact` (state augmentation of the exact transitions, independent code): measured max abs(Delta ln K) 4.4e-16 |
+| Coupon types: Libor is the one step daily coupon, continuous is the step -> 0 limit | `test_libor_is_the_one_step_daily_coupon`, `test_coupon_grid_lands_on_b`, `test_continuous_is_the_limit_of_daily_with_order_one`, `test_compounded_and_libor_convexities_differ_by_the_accrual_term` | continuous vs daily error ratio about 2 per halving of the step: O(step), measured, not proved |
+| Coupon-aware curves, pricers, swap and CB inputs | `test_index_coupon`, `test_curve_set_and_initial_curves_coupon`, `test_rfr_ccs_uses_the_compounded_convexity_not_libor`, `test_gaussian_approx_and_exact_forward_consistency`, `test_ingredients_use_the_curves_coupon`, `test_swap_convexities_pick_up_the_curves_coupon`, `test_cb_straddle_inputs_use_the_curves_coupon`, `test_initial_curves_paths_keep_libor` | the coupon of `curves.coupon("f")` reaches K0/KT, swap convexities and CB straddle inputs |
+| Example markets, inverted FX | `test_calibration_reprices_every_market`, `test_rfr_markets_use_compounded_coupons`, `test_default_market_is_eurusd_and_not_inverted`, `test_inverted_forward_quote_is_reciprocal`, `test_inverted_fx_quotes_give_the_same_curve`, `test_fx_option_vol_is_invariant_under_inversion`, `test_mc_inverted_forward_se_is_propagated` | all three markets reprice (closed form); USDJPY inverted quotes give the same curve as the direct pair |
+| Compounded coupons on Monte Carlo paths (`slow` where marked) | `test_simulate_dates_streams_dates_in_order_without_storing`, `test_coupon_paths_match_a_hand_computation_on_stored_states`, `test_coupon_paths_value_the_continuous_coupon_on_its_daily_grid`, `test_with_compounding_step_changes_only_the_foreign_coupon_step`, `test_mc_daily_coupon_convexity_one_period`, `test_coupon_path_control_means`, `test_mc_reprices_rfr_ccs_and_cb_vols`, `test_mc_rfr_negative_controls` | 4 s.e. with fixed seeds; 2^17 paths, seed 7, weekly step on paths: max abs(z) 2.22 (EURUSD), 3.10 (GBPUSD), 2.70 (USDJPY) |
 
 The test model (`default_model`) has two domestic factors, one foreign factor, one collateral
 basis factor and the FX factor. Its parameters are piecewise constant, with zero, 1e-7 and
@@ -106,6 +112,54 @@ The 30Y Z^{f|d} zero rate of the LGCM is 3.75 bp above the DCB one calibrated to
 The marimo notebook `python/notebooks/lgcm_calibration.py` shows the calibration results, the
 repricing tables, the impact of the marked parameters and the collateral convexity. From the
 repository root: `marimo edit python/notebooks/lgcm_calibration.py` (or `marimo run` for the app view).
+
+## Coupon types and markets
+
+A foreign index coupon is a `market.Coupon(kind, step)`, with `kind`
+
+- `"libor"`: `kappa / Z^{f|f}_{a,b}` fixed at `a` (kappa kept outside the convexity);
+- `"daily"`: exact daily compounding, prod 1/Z^{f|f}_{t_k,t_{k+1}} on `coupon_grid(a, b, step)` (default step 1/365); Libor is its one step case;
+- `"continuous"`: exp(int_a^b r^{f|f}), the step -> 0 limit. It is an approximation of the daily coupon with error O(step) (measured ratio about 2 per halving of the step, not proved).
+
+`Index(..., compounding, on_step)` sets the coupon of an OIS index; `Index.coupon`, `CurveSet.coupon(role)` and `Pricer.coupon_convexity(a, b)` expose it, and the swap, CCS and CB-vol machinery uses that coupon. The closed form is `Coupon.convexity(m, t, a, b)` (`market.compounded_convexity` for the compounded kinds); `benchmarks.coupon_value_exact` is the independent check. Libor and daily K differ by about 1e-7 relative per period, so the calibrated Z^{f|d} moves by only about -0.001 bp when switching coupon type: the in-arrears term is negligible in these markets. K - 1 reaches about 1.8e-4 (GBPUSD, USDJPY) and 2.2e-4 (EURUSD) at 30Y.
+
+Monte Carlo cannot resolve Libor against compounded K: the difference (~1e-7 relative) is far below the standard error of the runs here. The MC rows therefore test the compounded coupon valuation on paths (exact controls) and reject K = 1 (negative controls), not the Libor / compounded distinction, which rests on the exact benchmark. `mc_report(cal, ..., compounding_step=1/52)` compounds on a weekly grid on the paths, and `with_compounding_step(cal, 1/52)` makes the model side use the same step.
+
+`example_quotes(market)` for `market` in `MARKETS` = EURUSD (Libor-type foreign coupon), GBPUSD and USDJPY (daily compounded RFR). USDJPY is quoted inverted (`FXForward(..., inverted=True)`, `MarketQuotes.fx_inverted`): quotes are units of foreign per domestic, `MarketQuotes.x0` is the model spot (domestic per foreign). Run from `python/`:
+
+```python
+from convexity.market import Coupon, InitialCurves
+from convexity.benchmarks import coupon_value_exact
+from convexity.lgcm import default_model
+from convexity.market_data import example_quotes, MARKETS
+from convexity.calibration import calibrate
+from convexity.calibration_check import mc_report, with_compounding_step
+
+m, curves = default_model(), InitialCurves()
+for c in (Coupon("libor"), Coupon("daily"), Coupon("continuous")):
+    print(c.kind, c.convexity(m, 0.0, 10.0, 10.25) - 1)           # K - 1 of a 3M coupon at 10Y
+print(coupon_value_exact(m, curves, Coupon("daily"), 10.0, 10.25) - 1)   # exact benchmark
+
+for mk in MARKETS:
+    q = example_quotes(mk)
+    cal = calibrate(q)                                               # ~6 s
+    print(mk, q.fx_inverted, q.x0, cal.curves.coupon("f").kind)
+
+cal = calibrate(example_quotes("USDJPY"))
+rows = mc_report(with_compounding_step(cal, 1/52), n_paths=2**17, seed=7, compounding_step=1/52)
+```
+
+Output (the `K - 1` lines are for `default_model`):
+
+```
+libor 0.00017963350458449767
+daily 0.00017974700646350428
+continuous 0.0001797479505707411
+0.00017974700646350428
+EURUSD False 1.1 libor
+GBPUSD False 1.27 daily
+USDJPY True 0.006666666666666667 daily
+```
 
 ## Monte Carlo verification
 

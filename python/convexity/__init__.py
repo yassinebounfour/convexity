@@ -3,7 +3,8 @@
 Modules
 -------
 lgcm             model, covariance integrals, reconstruction formulas
-market           initial curves, funding spreads, LGCM closed forms (convexities, FX, Black/Bachelier)
+market           initial curves, funding spreads, Coupon (Libor, daily, continuous), LGCM closed forms (convexities, FX, Black/Bachelier)
+benchmarks       exact Gaussian benchmark of the coupon collateral convexity (independent of the closed forms)
 transitions      exact one-step transitions under the RN, T-forward and jumping numeraire measures
 moments          moment ODEs of the state SDE (independent benchmark)
 gaussian_approx  Gaussian approximations of swap rates / currency basis spreads and their exact benchmark
@@ -16,6 +17,6 @@ instruments      calibration instruments (swaps, FX forwards, resetting CCS, swa
 pricers          DeterministicPricer (DCB) and LGCMPricer (Libor convexities, exact and Gaussian option vols)
 curve_calibration  sequential curve bootstrap with a convexity provider; calibrate_curves (DCB)
 calibration      ModelSpec and calibrate: the LGCM calibration algorithm
-market_data      illustrative USD/EUR example market (not live data)
+market_data      illustrative EURUSD, GBPUSD, USDJPY (inverted) example markets (not live data)
 calibration_check  analytic and Monte Carlo repricing of the calibration quotes
 """
