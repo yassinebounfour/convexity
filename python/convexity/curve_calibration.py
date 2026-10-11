@@ -106,6 +106,6 @@ def bootstrap(quotes, curves, pricer, targets=None, report=None):
 def calibrate_curves(quotes, pricer_factory=DeterministicPricer):
     """Discount curves of all targets of the linear quotes. Default: DCB model (no convexity, no vols).
     pricer_factory(curves) -> Pricer, e.g. lambda c: LGCMPricer(model, c)."""
-    curves = CurveSet(quotes.setup, quotes.fx_spot)
+    curves = CurveSet(quotes.setup, quotes.x0)
     report = bootstrap(quotes, curves, pricer_factory(curves))
     return curves, report

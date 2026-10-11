@@ -89,7 +89,7 @@ def _(CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap, Swaption, 
         _unit, _val = _display(_q.instrument, _q.value)
         _rows.append({"label": _q.instrument.label, "type": type(_q.instrument).__name__, "unit": _unit,
                       "value": round(_val, 4)})
-    mo.vstack([mo.md(f"## Market quotes\n\nFX spot {MQ.fx_spot:.4f} USD per EUR; {len(MQ.quotes)} quotes."),
+    mo.vstack([mo.md(f"## Market quotes\n\nFX spot {MQ.x0:.4f} USD per EUR; {len(MQ.quotes)} quotes."),
                mo.ui.table(_rows, page_size=12, selection=None)])
     return (MQ,)
 

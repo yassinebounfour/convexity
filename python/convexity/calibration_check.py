@@ -91,13 +91,18 @@ def _swap(sim, st, cal, q):
 
 def _fx_forward(sim, st, cal, q):
     """Deflator / curve martingale check (no vol dependence): E[D^{d|d}_T (x_T - F)] =
-    Z^{d|d}_{0,T} (x^{df|d}_{0,T} - F)."""
+    Z^{d|d}_{0,T} (x^{df|d}_{0,T} - F), on the model outright F (x in units of d per f). The quote is
+    converted to F (inst.to_outright), F_hat = F_mkt + mean / Z and s_F = se / Z are mapped back to the
+    quoted convention (inst.quoted). For an inverted pair the quote is g(F) = 1/F (points: pip (1/F - 1/x_0)),
+    so by the delta method s.e.(g) = |g'(F)| s_F = pip s_F / F^2 (pip = 1 for outrights); the second
+    order bias is O(s_F^2 / F^3), far below the s.e."""
     inst, T = q.instrument, q.instrument.maturity
     res, c = st(T), cal.curves
-    F_mkt = q.value if inst.quotation == "outright" else c.x0 + q.value / inst.pip_factor
+    F_mkt = inst.to_outright(q.value, c.x0)
     mu, se = mean_and_stderr(sim.deflator(res, c, "d", "d") * (sim.fx_spot(res, c) - F_mkt))
     F, sF = F_mkt + mu / c.Z0("dd", T), se / c.Z0("dd", T)
-    return (F, sF) if inst.quotation == "outright" else ((F - c.x0) * inst.pip_factor, sF * inst.pip_factor)
+    pip = 1.0 if inst.quotation == "outright" else inst.pip_factor
+    return inst.quoted(F, c.x0), (pip * sF / F**2 if inst.inverted else pip * sF)
 
 
 def _ccs(sim, st, cal, q):

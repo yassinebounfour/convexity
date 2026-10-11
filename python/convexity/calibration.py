@@ -244,7 +244,7 @@ def calibrate(quotes, spec=None):
     diag = {"approximations": [], "marked": _marked(spec, swaptions, cb_vols, fx_vols)}
 
     # 1. native curves
-    curves = CurveSet(setup, quotes.fx_spot)
+    curves = CurveSet(setup, quotes.x0)
     report = bootstrap(quotes, curves, DeterministicPricer(curves), targets=[setup.key("dd"), setup.key("ff")])
     # 2. rates vols
     for b in "df":

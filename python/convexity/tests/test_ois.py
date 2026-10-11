@@ -220,3 +220,97 @@ def test_initial_curves_paths_keep_libor():
     _, _, _, _, K0, KT = ga._ingredients(M, s)
     for K, t in ((K0, 0.0), (KT, s.T0)):
         np.testing.assert_allclose(K[1:], [libor_convexity(M, t, a, b) for a, b in zip(s.Tj[:-1], s.Tj[1:])], rtol=1e-15)
+
+
+# ---------------------------------------------------------------------- Task 3: inverted FX, RFR markets
+from functools import lru_cache
+
+from convexity.instruments import FXForward, MarketQuotes, Quote, Swap
+from convexity.curve_calibration import calibrate_curves
+from convexity.calibration import calibrate
+from convexity.market_data import example_quotes, MARKETS
+from convexity.calibration_check import analytic_report, mc_report
+from convexity.pricers import DeterministicPricer
+
+
+@lru_cache(maxsize=None)
+def _cal(market):
+    return calibrate(example_quotes(market))
+
+
+def test_inverted_fx_quotes_give_the_same_curve():
+    mq = example_quotes("USDJPY")
+    assert mq.fx_inverted and mq.x0 == pytest.approx(1 / mq.fx_spot)
+    cs, _ = calibrate_curves(mq)
+    # direct outrights generated from the inverted-quote curve rebuild the same Z^{f|d}
+    pr = DeterministicPricer(cs)
+    direct = [Quote(FXForward(q.instrument.maturity), FXForward(q.instrument.maturity).quote(pr))
+              if isinstance(q.instrument, FXForward) else q for q in mq.quotes]
+    cs2, _ = calibrate_curves(MarketQuotes(mq.setup, mq.x0, direct))
+    T = np.linspace(0.05, 30, 40)
+    np.testing.assert_allclose(cs2.Z0("fd", T), cs.Z0("fd", T), rtol=1e-12)
+
+
+@pytest.mark.parametrize("market", MARKETS)
+def test_calibration_reprices_every_market(market):
+    cal = _cal(market)
+    assert cal.diagnostics["seconds"] < 30
+    rows = analytic_report(cal)
+    for r in rows:
+        tol = 1e-8 if r.kind == "FXForward" else 1e-10
+        assert abs(r.error) < tol, (market, r.label, r.error)
+
+
+def test_rfr_markets_use_compounded_coupons():
+    for market in ("GBPUSD", "USDJPY"):
+        mq = example_quotes(market)
+        assert mq.setup.foreign_index.kind == "OIS" and mq.setup.foreign_index.coupon.kind == "daily"
+
+
+def test_default_market_is_eurusd_and_not_inverted():
+    mq = example_quotes()
+    assert not mq.fx_inverted and mq.x0 == mq.fx_spot == 1.10 and mq.setup.foreign_index.kind == "IBOR"
+
+
+@pytest.mark.parametrize("quotation", ["outright", "points"])
+def test_inverted_forward_quote_is_reciprocal(quotation):
+    mq = example_quotes("USDJPY")
+    cs, _ = calibrate_curves(mq)
+    pr = DeterministicPricer(cs)
+    T = 0.5
+    F = FXForward(T).quote(pr)
+    inv = FXForward(T, quotation, 100.0, inverted=True).quote(pr)
+    expect = 1 / F if quotation == "outright" else (1 / F - 1 / cs.x0) * 100.0
+    assert inv == pytest.approx(expect, rel=1e-14)
+    assert FXForward(T, quotation, 100.0, True).label.startswith("FX forward") and "inverted" in FXForward(T, quotation, 100.0, True).label
+
+
+def test_fx_option_vol_is_invariant_under_inversion():
+    """ln x_T Gaussian => y = 1/x_T lognormal with the same total variance w, so the ATM Black vol of y
+    (strike E[y], price E[(y - E y)^+] / E[y] = 2 N(sqrt(w)/2) - 1) equals that of x. Checked by quadrature."""
+    from scipy.integrate import quad
+    from scipy.stats import norm
+    w = 0.09 ** 2 * 2.0
+    y = lambda z: np.exp(w / 2 - np.sqrt(w) * z)       # 1/x with ln x = -w/2 + sqrt(w) z
+    Ey = np.exp(w)                                      # E[1/x]
+    zstar = (w / 2 - np.log(Ey)) / np.sqrt(w)           # y > Ey iff z < zstar
+    price = quad(lambda z: (y(z) - Ey) * norm.pdf(z), -np.inf, zstar, epsabs=1e-14, epsrel=1e-13)[0] / Ey
+    assert 2 * norm.ppf(0.5 * (price + 1)) == pytest.approx(np.sqrt(w), rel=1e-9)
+
+
+def test_mc_inverted_forward_se_is_propagated():
+    """Quoted model value 1/F_hat with s.e. s_F / F^2 (delta method), points: pip * s_F / F^2."""
+    cal = _cal("USDJPY")
+    fxs = [q for q in cal.quotes.quotes if isinstance(q.instrument, FXForward)]
+    q = fxs[-1]
+    T = q.instrument.maturity
+    row = mc_report(cal, n_paths=2**13, seed=3, quotes=[q])[0]
+    pr = cal.pricer(exact=True)
+    direct = FXForward(T)
+    qd = Quote(direct, direct.quote(pr))
+    rd = mc_report(cal, n_paths=2**13, seed=3, quotes=[qd])[0]
+    F, sF = rd.model, rd.stderr
+    x0, pip = cal.curves.x0, q.instrument.pip_factor
+    assert row.model == pytest.approx((1 / F - 1 / x0) * pip, rel=1e-9)
+    assert row.stderr == pytest.approx(pip * sF / F**2, rel=1e-3)
+    assert abs(row.z) < 4
