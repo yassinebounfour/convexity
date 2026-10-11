@@ -272,6 +272,22 @@ def test_default_market_is_eurusd_and_not_inverted():
     assert not mq.fx_inverted and mq.x0 == mq.fx_spot == 1.10 and mq.setup.foreign_index.kind == "IBOR"
 
 
+@pytest.mark.parametrize("market", MARKETS)
+def test_fx_spot_and_forward_conventions_must_agree(market):
+    """A spot quoted in one convention and forwards in the other is rejected (flipping only fx_inverted
+    on EURUSD used to calibrate silently, Z^{f|d} zero rate off by about -43 bp at 0.5Y)."""
+    from dataclasses import replace
+    mq = example_quotes(market)
+    with pytest.raises(ValueError, match="inverted"):
+        replace(mq, fx_inverted=not mq.fx_inverted)
+    with pytest.raises(ValueError, match="inverted"):
+        MarketQuotes(mq.setup, mq.fx_spot, mq.quotes, not mq.fx_inverted)
+    # consistent quotes, and the replace-based helpers, still work
+    assert len(mq.with_values([q.value for q in mq.quotes]).quotes) == len(mq.quotes)
+    assert not mq.without(FXForward).of_type(FXForward)
+    assert replace(mq.without(FXForward), fx_inverted=not mq.fx_inverted).fx_inverted != mq.fx_inverted
+
+
 @pytest.mark.parametrize("quotation", ["outright", "points"])
 def test_inverted_forward_quote_is_reciprocal(quotation):
     mq = example_quotes("USDJPY")

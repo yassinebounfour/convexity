@@ -3,7 +3,8 @@
 An Instrument is pure data: it declares what it calibrates (`target`: a CurveKey for linear
 instruments, a model block "d", "f", "c" or "x" for options), its `pillar` and the curves it reads
 besides its target (`dependencies`), and computes its model quote from a Pricer (`quote`). Linear
-instruments are priced from the curves and the Libor collateral convexities given by the pricer;
+instruments are priced from the curves and the collateral convexities of the foreign
+coupon (Libor or compounded) given by the pricer;
 options delegate to the pricer. Values are in the instrument's quotation: par rate, FX outright or
 points, CB spread, normal vol (swaptions, CB spreads) or Black vol (FX).
 
@@ -153,7 +154,7 @@ class ResettingCCS(Instrument):
     foreign index tenor: foreign index + B against the domestic index on a notional reset at each fixing.
         B = sum_j P_j (1 + theta L^r_j - (1 + theta L^{f|d}_j)) / (theta sum_j P_j),  P_j = Z^{f|d}_{0,T_j},
         1 + theta L^r_j = kappa^d P_{j-1}/P_j,  1 + theta L^{f|d}_j = kappa^f Z^{f|f}_{j-1}/Z^{f|f}_j K_j,
-    K_j the Libor collateral convexity given by the pricer."""
+    K_j the collateral convexity of the foreign coupon (Libor or compounded) given by the pricer."""
     end: float
     start: float = 0.0
     priority = 1
@@ -286,6 +287,16 @@ class MarketQuotes:
     fx_spot: float          # the QUOTED spot (units of foreign per domestic if fx_inverted)
     quotes: list
     fx_inverted: bool = False
+
+    def __post_init__(self):
+        """The spot and every FX forward must be quoted in the same convention: a mismatch is otherwise
+        not detected by the curve calibration (EURUSD with only fx_inverted flipped calibrates, with the
+        Z^{f|d} zero rate off by about -43 bp at 0.5Y)."""
+        bad = [q.instrument.label for q in self.quotes
+               if isinstance(q.instrument, FXForward) and q.instrument.inverted != self.fx_inverted]
+        if bad:
+            raise ValueError(f"FX spot quoted with fx_inverted={self.fx_inverted} but forwards {bad} have "
+                             f"inverted={not self.fx_inverted}: quote the spot and forwards in the same convention")
 
     @property
     def x0(self):
