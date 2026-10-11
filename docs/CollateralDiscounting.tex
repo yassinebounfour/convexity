@@ -3310,7 +3310,7 @@ Assume the block $a$ has one factor, and write $z = z^a_{T_0}$, $y = y^{a,a}_{T_
   \label{eq:cal_exact_swaption}
 \end{eqnarray}
 and the quoted volatility is $\sigma_N = \mathrm{PV}/(A_0\sqrt{T_0/(2\pi)})$.
-\item The assumption of 2.\ holds when the coefficients $c_mP_m$, ordered by increasing $G_m$, change sign exactly once, from positive to negative. This is the case for OIS swaps ($\kappa^a = 1$) whose fixed dates are floating dates: the only positive coefficient is $c = 1$ at $T_0$, where $G = 0$.
+\item The assumption of 2.\ holds when the coefficients $c_mP_m$, ordered by increasing $G_m$, change sign exactly once, from positive to negative. This is the case for OIS swaps ($\kappa^a = 1$) with $K > -1/\tau_p$, $\tau_p$ the last fixed accrual: ordered by date, the coefficients are $1$ at $T_0$ (where $G = 0$), then $-K\tau_k$ at the fixed dates before the end, all of the sign of $-K$, then $-1-K\tau_p<0$ at the end date. For $K\ge0$ the only positive coefficient is the first one; for $-1/\tau_p<K<0$ every coefficient except the last is positive. In both cases there is exactly one sign change.
 \end{enumerate}
 \end{prop}
 
@@ -3327,7 +3327,7 @@ the density of $N(-Gy,y)$. So $\EE[e^{-Gz-\frac{1}{2}G^2y}\vun_{z>z^*}] = \PP(N(
 \begin{eqnarray*}
   e^{G^*z}V(z) ~=~ \sum_{c_m>0} c_mP_me^{-\frac{1}{2}G_m^2y}\,e^{(G^*-G_m)z} - \sum_{c_m<0}|c_m|P_me^{-\frac{1}{2}G_m^2y}\,e^{(G^*-G_m)z}
 \end{eqnarray*}
-is strictly increasing (the first sum increases since $G_m<G^*$, the second decreases since $G_m>G^*$), and tends to $-\infty$ as $z\to-\infty$ and to $+\infty$ as $z\to+\infty$. It has a unique zero $z^*$, and $V$ has the sign of $e^{G^*z}V$. For an OIS swap the coefficients are $1$ at $T_0$ and $-K\tau_k$, $-1-K\tau_p$ at the fixed dates.
+is strictly increasing (the first sum increases since $G_m<G^*$, the second decreases since $G_m>G^*$), and tends to $-\infty$ as $z\to-\infty$ and to $+\infty$ as $z\to+\infty$. It has a unique zero $z^*$, and $V$ has the sign of $e^{G^*z}V$. For an OIS swap the floating coefficients $c^f_m$ of \eqref{eq:cal_swap_rate} are $1$ at $T_0$, $0$ at the intermediate floating dates ($\kappa^a - 1 = 0$) and $-1$ at the end date, whatever the floating schedule. So the coefficients are $1$ at $T_0$ and $-K\tau_k$, $-1-K\tau_p$ at the fixed dates, and the sign pattern of item 3 follows.
 \end{proof}
 
 \begin{rema}[Libor swaps and what the code checks]
@@ -3557,7 +3557,7 @@ Input: the quotes of the introduction, the marked mean reversions, weights, corr
 \item \emph{Fixed point on $(\QZ^{f|f\to d},\lambda^c)$.} Repeat:
 \begin{enumerate}
 \item bootstrap $Z^{f|d}$ from the FX forwards and the resetting CB swaps (\autoref{algo:cal_curve_bootstrap}) with $K_j$ from the current $\sigma^c$;
-\item if CB volatilities are quoted, for each expiry $T_k$ solve for $\lambda^c$ on $[T_{k-1},T_k)$ (the last one on $[T_{n-1},\infty)$): Brent search on the Gaussian approximation of \autoref{prop:gauss_cb_spread}, then Brent search on the exact quadrature started there. Fail if the volatility at $\lambda^c = 0$ on the segment already exceeds the target (variance squeeze);
+\item if CB volatilities are quoted, for each expiry $T_k$ solve for $\lambda^c$ on $[T_{k-1},T_k)$ (the last one on $[T_{n-1},\infty)$): Brent search on the Gaussian approximation of \autoref{prop:gauss_cb_spread}, then Brent search on the exact quadrature started there. Fail if the volatility at $\lambda^c = 0$ on the segment already reaches the target (variance squeeze). This test uses the Gaussian approximation, as for the swaptions (\autoref{rema:cal_swaption_bootstrap});
 \end{enumerate}
 until the maximum change of the $\lambda^c$ levels and of the forwards of $\QZ^{f|f\to d}$ between two iterations is below $10^{-12}$ (at most $30$ iterations, else fail). Without CB volatilities, one pass with the marked $\sigma^c$.
 \item \emph{FX volatility.} For each FX expiry $T_k$, set $\sigma^x$ on $[T_{k-1},T_k)$ (the last one on $[T_{n-1},\infty)$) by \eqref{eq:cal_fx_root}; fail on a variance squeeze.
@@ -3569,8 +3569,8 @@ Output: the model, the curves $Z^{d|d}$, $Z^{f|f}$, $Z^{f|d}$, and the off-marke
 \begin{enumerate}
 \item The curve $Z^{f|d}$ beyond the FX forwards depends on $\sigma^c$ on $[0,30\mathrm{Y}]$ through the $K_j$ (\autoref{prop:cal_constraints}, item 1). The CB volatility of expiry $T_k$ depends on the curve (weights $P_j$, levels $B_j$) and, through $K_{T_k,j}$, on $\sigma^c$ on $[T_k,T_k+\mathrm{tenor}-\theta]$, i.e.\ on the next segment (item 2). Neither ``curve first, then volatilities'' nor ``expiry by expiry'' is triangular, hence the fixed point. The swaption and FX steps are triangular and need no iteration.
 \item A level set on $[T_{k-1},\infty)$ instead of $[T_{k-1},T_k)$ would overwrite the pieces read by the earlier CB volatilities. A draft implementation did this: the earlier CB volatilities were then missed by up to $3.8\cdot10^{-11}$. With one segment per expiry and the outer fixed point, they are repriced to $1.5\cdot10^{-17}$.
-\item On the example market the fixed point stops after $5$ iterations, with changes $\infty$, $6.2\cdot10^{-4}$, $1.8\cdot10^{-7}$, $4.0\cdot10^{-11}$, $8.3\cdot10^{-15}$: a contraction factor of about $3\cdot10^{-4}$ per iteration. This is a numerical observation; we have no proof of contraction. It is consistent with the size of the coupling: $K_j - 1\le 2.24\cdot10^{-4}$ up to $30$Y. With $\sigma^c = 0$ and no CB volatilities, one pass suffices and the LGCM curve equals the DCB curve to $10^{-14}$ (test \texttt{test\_dcb\_limit}).
-\item The whole calibration takes $7.0$s on the example market (65 quotes). The calibrated levels are $\lambda^d$ between $1.19\%$ and $1.35\%$, $\lambda^f$ between $0.89\%$ and $1.05\%$, $\lambda^c$ between $9.9$bp and $18.6$bp and $\sigma^x$ between $7.0\%$ and $8.3\%$. Round trip: quotes generated by the calibrated model, calibrated from another initial $\lambda^c$, give back the parameters to $10^{-8}$ (relative) and $Z^{f|d}$ to $10^{-12}$.
+\item On the example market the fixed point stops after $5$ iterations, with changes $\infty$, $6.2\cdot10^{-4}$, $1.8\cdot10^{-7}$, $4.0\cdot10^{-11}$, $8.2\cdot10^{-15}$: successive ratios $2.8\cdot10^{-4}$, $2.3\cdot10^{-4}$, $2.1\cdot10^{-4}$, a contraction factor of about $2$--$3\cdot10^{-4}$ per iteration. This is a numerical observation; we have no proof of contraction. It is consistent with the size of the coupling: $K_j - 1\le 2.24\cdot10^{-4}$ up to $30$Y. With $\sigma^c = 0$ and no CB volatilities, one pass suffices and the LGCM curve equals the DCB curve to $10^{-14}$ (test \texttt{test\_dcb\_limit}).
+\item The whole calibration takes $5.5$s on the example market (65 quotes). The calibrated levels are $\lambda^d$ between $1.19\%$ and $1.35\%$, $\lambda^f$ between $0.89\%$ and $1.05\%$, $\lambda^c$ between $9.9$bp and $18.6$bp and $\sigma^x$ between $7.0\%$ and $8.3\%$. Round trip: quotes generated by the calibrated model, calibrated from another initial $\lambda^c$, give back the parameters to $10^{-8}$ (relative) and $Z^{f|d}$ to $10^{-12}$.
 \end{enumerate}
 \end{rema}
 

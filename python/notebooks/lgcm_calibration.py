@@ -103,7 +103,7 @@ def _(mo):
     run_mc = mo.ui.run_button(label="Run Monte Carlo check")
     run_impact = mo.ui.run_button(label="Run parameter-impact table")
     npaths = mo.ui.dropdown({"2^14": 2**14, "2^15": 2**15, "2^16": 2**16}, value="2^15", label="MC paths")
-    mo.vstack([mo.md("## Controls\n\nThe sliders recalibrate the whole model (about 7 s) when released "
+    mo.vstack([mo.md("## Controls\n\nThe sliders recalibrate the whole model (about 5.5 s) when released "
                      "(results are cached per parameter tuple, so returning to earlier values is instant). "
                      "The Monte Carlo check and the parameter-impact table (up to 5 recalibrations) run only on their buttons."),
                mo.hstack([rho, cbscale], justify="start"), mo.hstack([beta_c, beta_f], justify="start"),
@@ -341,7 +341,7 @@ def _(C, cal, dcb, fx_collateral_convexity, libor_convexity, mo, np, plt):
 @app.cell
 def _(beta_c, beta_f, build, cbscale, impact, mo, run_impact):
     mo.stop(not run_impact.value, mo.md("## Parameter impact: $\\rho^{fc}$\n\nPress *Run parameter-impact table* above "
-                                        "(about 7 s per uncached row)."))
+                                        "(about 5.5 s per uncached row)."))
     _rows = []
     for _r in (-0.8, -0.6, -0.4, 0.0, 0.4):
         try:
@@ -360,7 +360,7 @@ def _(beta_c, beta_f, build, cbscale, impact, mo, run_impact):
     other fixed correlations the matrix is not positive definite (the feasible range is about [-0.7, 0.6]).
     The table runs only when its button is pressed. Results are cached per parameter tuple in a cache that is
     independent of the sliders, so a repeated tuple (also the one used by the main calibration) is instant;
-    a new tuple costs about 7 s per row. The market quotes are the same in every row: $\\rho^{{fc}}$ changes what
+    a new tuple costs about 5.5 s per row. The market quotes are the same in every row: $\\rho^{{fc}}$ changes what
     the *same* quotes imply for the basis curve and convexities.
     """), mo.ui.table(_rows, selection=None)])
     return
