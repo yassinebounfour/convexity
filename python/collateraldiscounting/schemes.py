@@ -179,7 +179,8 @@ class ExactScheme(MCScheme):
         g = np.union1d(g[~near], dates)
         g = g[np.concatenate([[True], np.diff(g) > 1e-10])]
         steps = [transitions.transition(m, t0, t1, "RN") for t0, t1 in zip(g[:-1], g[1:])]
-        ixs = steps[0][3]
+        # only t = 0 requested (no step): the layout is that of any transition
+        ixs = (steps[0] if steps else transitions.transition(m, 0.0, 1e-10, "RN"))[3]
         X = np.zeros((P, ixs["n"]))
         out = PathStates()
 

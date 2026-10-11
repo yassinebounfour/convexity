@@ -20,7 +20,7 @@ def _():
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from collateraldiscounting.calibration import BlockSpec, ModelSpec, calibrate, default_spec
+    from collateraldiscounting.calibration import BlockSpec, CalibrationError, ModelSpec, calibrate, default_spec
     from collateraldiscounting.calibration_check import analytic_report, mc_report
     from collateraldiscounting.curve_calibration import calibrate_curves
     from collateraldiscounting.instruments import (CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap,
@@ -34,7 +34,7 @@ def _():
     plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False, "axes.grid": True,
                          "grid.alpha": 0.25, "figure.facecolor": "white", "axes.facecolor": "white",
                          "font.size": 10, "axes.titlesize": 11, "axes.titleweight": "bold"})
-    return (BlockSpec, C, CurrencyBasisSwaption, FXForward, FXOption, ModelSpec, ResettingCCS, Swap, Swaption,
+    return (BlockSpec, C, CalibrationError, CurrencyBasisSwaption, FXForward, FXOption, ModelSpec, ResettingCCS, Swap, Swaption,
             analytic_report, calibrate, calibrate_curves, default_spec, example_quotes, functools,
             fx_collateral_convexity, libor_convexity, mc_report, mo, np, plt, replace)
 
@@ -148,13 +148,16 @@ def _(BlockSpec, CurrencyBasisSwaption, MQ, calibrate, calibrate_curves, default
 
 
 @app.cell
-def _(beta_c, beta_f, build, calibrated, cbscale, mo, rho):
+def _(CalibrationError, beta_c, beta_f, build, calibrated, cbscale, mo, rho):
     try:
         build(rho.value, cbscale.value, beta_c.value, beta_f.value)    # only the spec construction is guarded
     except ValueError as _e:
         mo.stop(True, mo.callout(mo.md(f"rho^fc = {rho.value:.1f} is infeasible with the other (fixed) correlations: "
                                        f"{_e}. Choose a value in about [-0.7, 0.6]."), kind="danger"))
-    cal = calibrated(rho.value, cbscale.value, beta_c.value, beta_f.value)
+    try:
+        cal = calibrated(rho.value, cbscale.value, beta_c.value, beta_f.value)
+    except CalibrationError as _e:     # e.g. CB vol scale 0: a variance squeeze; other errors stay visible
+        mo.stop(True, mo.callout(mo.md(f"The calibration fails for these parameters: {_e}"), kind="danger"))
     _d = cal.diagnostics
     mo.md(f"""## Calibration
 

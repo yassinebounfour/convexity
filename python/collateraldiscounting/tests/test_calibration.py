@@ -390,3 +390,91 @@ def test_check_row_z_without_stderr():
 def test_simulate_dates_rejects_empty(cal):
     with pytest.raises(ValueError, match="at least one date"):
         Simulator(cal.model, scheme=ExactScheme(0.25)).simulate_dates([], 2**4)
+
+
+# ---------------------------------------------------------------------- final review fixes
+def _replace_values(pred_values):
+    """MQ with the quotes matched by a predicate replaced: pred_values = [(pred(instrument), value)]."""
+    def new(q):
+        for pred, v in pred_values:
+            if pred(q.instrument):
+                return Quote(q.instrument, v)
+        return q
+    return dataclasses.replace(MQ, quotes=[new(q) for q in MQ.quotes])
+
+
+def _usd_swaption(T):
+    return lambda i: isinstance(i, Swaption) and i.underlying.index.currency == "USD" and i.expiry == T
+
+
+def _cb_vol(T):
+    return lambda i: isinstance(i, CurrencyBasisSwaption) and i.expiry == T
+
+
+def test_simulate_dates_time_zero_only(cal):
+    """Only t = 0 requested: no transition step; the state is the zero state with the layout of
+    transitions.transition."""
+    sim = Simulator(cal.model, scheme=ExactScheme(0.25))
+    nr, P = cal.model.nr, 2**4
+    for dates in ([0.0], [0.0, 1e-12]):
+        st = sim.simulate_dates(dates, P, seed=1)
+        r = st(0.0)
+        assert r.z.shape == (P, nr) and np.all(r.z == 0)
+        for name in ("zx", "Id", "Iq"):
+            a = getattr(r, name)
+            assert a.shape == (P,) and np.all(a == 0), name
+        assert st(dates[-1]) is r                            # 1e-12 rounds to the date 0
+
+
+def test_mc_report_ccs_with_fixings_at_time_zero_only(cal):
+    """A single-period CCS fixes at 0 only: its MC value is deterministic (stderr 0) and equals the
+    closed form to rounding (K_{0,0,b} = 1); z is then +-inf or nan (CheckRow.z), never an exception."""
+    inst = ResettingCCS(0.25)
+    q = Quote(inst, inst.quote(cal.pricer()))
+    (row,) = mc_report(cal, n_paths=2**6, seed=1, quotes=[q])
+    assert row.stderr == pytest.approx(0.0, abs=1e-15)
+    assert row.model == pytest.approx(q.value, abs=1e-14)
+    assert np.isnan(row.z) or np.isinf(row.z) or abs(row.z) < 4
+
+
+@pytest.mark.parametrize("types", [(FXForward, ResettingCCS, Swaption, FXOption, CurrencyBasisSwaption),
+                                   (FXForward, ResettingCCS)])
+def test_calibrate_without_fd_quotes_raises(types):
+    """No quote targets Z^{f|d}: a CalibrationError up front, not a KeyError deep in the fixed point."""
+    with pytest.raises(CalibrationError, match=r"Z\^\{f\|d\} needs FX forward or resetting CCS quotes"):
+        calibrate(MQ.without(*types))
+
+
+def test_zero_cb_vol_raises_with_label():
+    with pytest.raises(CalibrationError, match=r"CB vol 1Yx1Y.*foreign rates block") as e:
+        calibrate(_replace_values([(_cb_vol(1), 0.0)]))
+    assert "before 0.0" not in str(e.value)
+
+
+def test_cb_vol_squeeze_at_later_expiry_raises():
+    """2Y CB vol of 1 bp after 9 bp at 1Y: lambda^c on [0, 1) already delivers more than 1 bp at 2Y."""
+    with pytest.raises(CalibrationError, match=r"variance squeeze on CB vol 2Yx1Y"):
+        calibrate(_replace_values([(_cb_vol(2), 1e-4)]))
+
+
+def test_swaption_squeeze_at_later_expiry_raises():
+    """USD 1Y vol 300 bp then 2Y vol 10 bp: the variance delivered on [0, 1) (8.5e-4) exceeds the 2Y
+    target 2e-6, so lambda^d on [1, 2) would need a negative variance."""
+    mq = _replace_values([(_usd_swaption(1), 0.03), (_usd_swaption(2), 0.001)])
+    with pytest.raises(CalibrationError, match=r"variance squeeze on USD_SOFR swaption 2Yx10Y.*already delivered before 1"):
+        calibrate(mq)
+
+
+def test_marked_blocks_are_reported(cal):
+    assert cal.diagnostics["marked"] == []
+    spec = default_spec()
+    cal0 = calibrate(MQ.without(Swaption, FXOption, CurrencyBasisSwaption), spec)
+    assert cal0.diagnostics["marked"] == [
+        f"lambda^d marked at level={spec.d.level}: no d swaption quotes",
+        f"lambda^f marked at level={spec.f.level}: no f swaption quotes",
+        f"lambda^c marked at level={spec.c.level}: no CB vol quotes",
+        f"sigma^x marked at fx_level={spec.fx_level}: no FX option quotes"]
+    eur = [q for q in MQ.quotes if not (isinstance(q.instrument, Swaption)
+                                        and q.instrument.underlying.index.currency == "EUR")]
+    cal1 = calibrate(dataclasses.replace(MQ, quotes=eur), spec)
+    assert cal1.diagnostics["marked"] == [f"lambda^f marked at level={spec.f.level}: no f swaption quotes"]

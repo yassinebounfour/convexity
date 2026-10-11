@@ -147,11 +147,11 @@ def test_market_quotes_selectors():
 
 from collateraldiscounting.curve_calibration import calibrate_curves, bootstrap, BootstrapReport, CalibrationError
 
-def linear_quotes(points=False):
+def linear_quotes(points=False, pip_factor=1e4):
     """Quotes generated from flat_curves(): the bootstrap must give back these curves."""
     pr = DeterministicPricer(flat_curves())
     insts = ([Swap(SOFR, T) for T in (1, 2, 5, 10, 30)] + [Swap(E3M, T) for T in (1, 2, 5, 10, 30)]
-             + [FXForward(T, "points" if points else "outright") for T in (0.25, 0.5, 1.0)]
+             + [FXForward(T, "points" if points else "outright", pip_factor) for T in (0.25, 0.5, 1.0)]
              + [ResettingCCS(T) for T in (1.0, 2.0, 5.0, 10.0, 30.0)])
     return MarketQuotes(SETUP, 1.1, [Quote(i, i.quote(pr)) for i in reversed(insts)])   # unsorted on purpose
 
@@ -173,6 +173,24 @@ def test_points_and_outrights_give_the_same_curve():
     a, _ = calibrate_curves(linear_quotes(points=False))
     b, _ = calibrate_curves(linear_quotes(points=True))
     np.testing.assert_allclose(a.Z0("fd", [0.3, 0.9, 7.0]), b.Z0("fd", [0.3, 0.9, 7.0]), rtol=1e-13)
+
+
+def test_points_with_other_pip_factor_give_the_same_curve():
+    a, _ = calibrate_curves(linear_quotes(points=False))
+    b, _ = calibrate_curves(linear_quotes(points=True, pip_factor=100.0))
+    np.testing.assert_allclose(a.Z0("fd", [0.3, 0.9, 7.0]), b.Z0("fd", [0.3, 0.9, 7.0]), rtol=1e-13)
+
+
+def test_native_curves_only_from_swaps():
+    """Curve-only calibration needs no Z^{f|d} quote: native swaps give Z^{d|d} and Z^{f|f}."""
+    mq = linear_quotes()
+    swaps = MarketQuotes(SETUP, 1.1, mq.of_type(Swap))
+    cs, rep = calibrate_curves(swaps)
+    ref = flat_curves()
+    T = np.linspace(0.1, 40, 50)
+    for kind in ("dd", "ff"):
+        np.testing.assert_allclose(cs.Z0(kind, T), ref.Z0(kind, T), rtol=1e-12)
+    assert len(rep.used) == len(swaps.quotes)
 
 
 def test_fx_forward_curve_is_model_free():

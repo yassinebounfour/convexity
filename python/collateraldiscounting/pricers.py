@@ -79,8 +79,10 @@ def native_swaption_variance(model, factors, swap, Z):
 def native_swaption_exact_vol(model, i, swap, Z):
     """ATM normal vol from the exact one-factor price (Proposition "Exact one factor swaption").
     Under Q^{T0}, z = z^{a,i}_{T0} ~ N(0, y) and Z_{T0,T} = P(T) exp(-G z - G^2 y/2). The swap value at
-    the ATM strike K, V(z) = sum_m c_m Z_{T0,t_m}, is increasing in z; with V(z*) = 0,
-    E^{T0}[V^+] = sum_m c_m P_m N(-(z* + G_m y)/sqrt(y))."""
+    the ATM strike K is V(z) = sum_m c_m Z_{T0,t_m}. Checked here: V(-12 sqrt y) < 0 < V(12 sqrt y), and z*
+    is the root of V in that bracket. The closed form E^{T0}[V^+] = sum_m c_m P_m N(-(z* + G_m y)/sqrt(y))
+    additionally assumes that V changes sign only once (the proposition, for OIS swaps with K > -1/tau_p);
+    this is not verified here."""
     T0 = swap.start
     tf, cf, tx, wx = swap.cashflows()
     fl, A0 = swap.legs(Z)
@@ -93,7 +95,7 @@ def native_swaption_exact_vol(model, i, swap, Z):
     V = lambda z: float((c * P * np.exp(-G * z - 0.5 * G * G * y)).sum())
     lo, hi = -12 * s, 12 * s
     if not V(lo) < 0 < V(hi):
-        raise ValueError(f"{swap.label}: swap value not increasing in the state, no exact closed form")
+        raise ValueError(f"{swap.label}: no sign change of the swap value on +-12 sqrt(y), no exact closed form")
     zs = brentq(V, lo, hi, xtol=1e-14 * s)
     price = Z(T0) * float((c * P * norm.cdf(-(zs + G * y) / s)).sum())
     return price / (A0 * sqrt(T0 / (2 * pi)))

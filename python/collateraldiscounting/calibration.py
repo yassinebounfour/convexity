@@ -178,9 +178,16 @@ def _bootstrap_cb_vols(model, spec, curves, quotes):
                 _set_level(model, spec, "c", t0, t1, x)
                 return pricer.cb_normal_vol(q.instrument) - q.value
             return f
-        if residual(approx)(0.0) >= 0:
-            raise _squeeze(q, f"CB vol already delivered before {t0}")
-        guess = max(model.sig[model.idx["c"][0]][int(np.searchsorted(model.knots, t0 - 1e-12))], 1e-4)
+        # warm start: the level of the previous fixed-point iteration (read before the probe at 0)
+        k0, (i0, w0) = int(np.searchsorted(model.knots, t0 - 1e-12)), (model.idx["c"][0], spec.c.weights[0])
+        guess = max(model.sig[i0][k0] / w0, 1e-4)
+        excess = residual(approx)(0.0)
+        if excess >= 0:
+            where = ("the foreign rates block alone delivers" if t0 == 0 else
+                     f"lambda^c before {t0:g} and the foreign rates block deliver")
+            raise _squeeze(q, f"with lambda^c = 0 on [{t0:g}, {q.instrument.expiry:g}), {where} a CB vol "
+                              f"of {q.value + excess:.4g} (Gaussian approximation)")
+        _set_level(model, spec, "c", t0, t1, guess)
         lam = root_in_bracket(residual(approx), guess, lower=0.0, step=0.5 * guess)
         if spec.exact:
             lam = root_in_bracket(residual(exact), lam, lower=0.0, step=0.05 * lam)
@@ -203,6 +210,17 @@ def _bootstrap_fx(model, quotes):
         _set_level(model, None, "x", t0, t1, root)
 
 
+def _marked(spec, swaptions, cb_vols, fx_vols):
+    """Blocks left at their marked level because no quote targets them."""
+    out = [f"lambda^{b} marked at level={getattr(spec, b).level}: no {b} swaption quotes"
+           for b in "df" if not swaptions[b]]
+    if not cb_vols:
+        out.append(f"lambda^c marked at level={spec.c.level}: no CB vol quotes")
+    if not fx_vols:
+        out.append(f"sigma^x marked at fx_level={spec.fx_level}: no FX option quotes")
+    return out
+
+
 def _snapshot(model, curves):
     fd = curves[curves.setup.key("fd")]
     return np.r_[model.sig[model.idx["c"][0]], fd.forwards]
@@ -219,8 +237,11 @@ def calibrate(quotes, spec=None):
     expiries = [q.instrument.pillar for q in swaptions["d"] + swaptions["f"] + cb_vols + fx_vols]
     if expiries and max(expiries) >= spec.horizon:
         raise ValueError(f"expiries must be before the horizon {spec.horizon}")
+    if not quotes.for_target(setup.key("fd")):
+        raise CalibrationError("Z^{f|d} needs FX forward or resetting CCS quotes (none given): the "
+                               "calibration bootstraps it in the fixed point with lambda^c")
     model = _build_model(spec, np.unique(np.r_[0.0, expiries, spec.horizon]))
-    diag = {"approximations": []}
+    diag = {"approximations": [], "marked": _marked(spec, swaptions, cb_vols, fx_vols)}
 
     # 1. native curves
     curves = CurveSet(setup, quotes.fx_spot)
