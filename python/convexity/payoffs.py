@@ -27,7 +27,7 @@ from math import sqrt
 import numpy as np
 
 from . import gaussian_approx as ga
-from .market import (InitialCurves, libor_convexity, lgcm_discount0, lgcm_fx_forward0,
+from .market import (InitialCurves, LIBOR, lgcm_discount0, lgcm_fx_forward0,
                      fx_total_variance, black, bachelier)
 from .montecarlo import mean_and_stderr
 
@@ -116,21 +116,23 @@ class SwapPayoff(Payoff):
         P = np.stack([sim.discount(res, curves, self.kind, T) for T in self.Tj[1:]], axis=1)
         nat = self.ccy * 2
         Zn = np.stack([sim.discount(res, curves, nat, T) for T in self.Tj], axis=1)
-        one_L = curves.kappa(self.ccy) * Zn[:, :-1] / Zn[:, 1:] * self.convexities(sim.m, self.expiry)
+        one_L = curves.kappa(self.ccy) * Zn[:, :-1] / Zn[:, 1:] * self.convexities(sim.m, self.expiry, curves)
         A = self.theta * P.sum(1)
         return A, ((one_L - 1) * P).sum(1) / A        # theta_j L_j = (1 + theta_j L_j) - 1
 
-    def convexities(self, model, t):
-        """(1+th L^{e|c}) / (1+th L^{e|e}) per period, seen from t (LGCM formula; 1 for native swaps)."""
+    def convexities(self, model, t, curves=None):
+        """K of the foreign coupon per period, seen from t (LGCM formula; 1 for native swaps). The coupon
+        is curves.coupon("f") when curves is given, else Libor."""
         if self.kind != "fd":
             return np.ones(self.n)
-        return np.array([libor_convexity(model, t, a, b) for a, b in zip(self.Tj[:-1], self.Tj[1:])])
+        cp = LIBOR if curves is None else curves.coupon("f")
+        return np.array([cp.convexity(model, t, a, b) for a, b in zip(self.Tj[:-1], self.Tj[1:])])
 
     def forward(self, model, curves):
         """Time-0 annuity (spot, undiscounted to T0) and forward swap rate."""
         P = curves.Z0(self.kind, self.Tj[1:])
         Zn = curves.Z0(self.ccy * 2, self.Tj)
-        one_L = curves.kappa(self.ccy) * Zn[:-1] / Zn[1:] * self.convexities(model, 0.0)
+        one_L = curves.kappa(self.ccy) * Zn[:-1] / Zn[1:] * self.convexities(model, 0.0, curves)
         A = self.theta * P.sum()
         return A, float(((one_L - 1) * P).sum() / A)
 

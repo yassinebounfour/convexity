@@ -109,3 +109,54 @@ def test_curve_set_and_initial_curves_coupon():
     cs3 = CurveSet(LGCMSetup(sofr, estr, foreign_index=Index("EUR_EURIBOR3M", "EUR", "IBOR", 0.25, 0.001)), 1.1)
     assert cs3.coupon("f") == LIBOR
     assert CV.coupon("d") == LIBOR and CV.coupon("f") == LIBOR
+
+
+# ---------------------------------------------------------------------- Task 2: coupon-aware pricers
+from convexity.curves import PiecewiseFlatCurve, SpreadCurve
+from convexity.instruments import ResettingCCS, CurrencyBasisSwaption
+from convexity.pricers import LGCMPricer, DeterministicPricer
+from convexity import gaussian_approx as ga
+
+SOFR = Index("USD_SOFR", "USD")
+SONIA = Index("GBP_SONIA", "GBP", on_step=1 / 52)
+SETUP_RFR = LGCMSetup(SOFR, SONIA)                         # foreign index = SONIA (compounded)
+
+
+def rfr_curves():
+    cs = CurveSet(SETUP_RFR, 1.27)
+    cs[SETUP_RFR.key("dd")] = PiecewiseFlatCurve([2, 10, 50], [0.042, 0.038, 0.04])
+    cs[SETUP_RFR.key("ff")] = PiecewiseFlatCurve([2, 10, 50], [0.040, 0.037, 0.039])
+    cs[SETUP_RFR.key("fd")] = SpreadCurve(cs[SETUP_RFR.key("ff")], PiecewiseFlatCurve([5, 50], [-0.0005, -0.0008]))
+    return cs
+
+
+def test_rfr_ccs_uses_the_compounded_convexity_not_libor():
+    cs = rfr_curves()
+    pr = LGCMPricer(M, cs)
+    ccs = ResettingCCS(20.0)
+    Tj = ccs.schedule(SETUP_RFR)
+    P, Zf = cs.Z0("fd", Tj), cs.Z0("ff", Tj)
+    K = np.array([SONIA.coupon.convexity(M, 0.0, a, b) for a, b in zip(Tj[:-1], Tj[1:])])
+    B = ((P[:-1] / P[1:] - Zf[:-1] / Zf[1:] * K) * P[1:]).sum() / (0.25 * P[1:].sum())
+    assert ccs.quote(pr) == pytest.approx(B, rel=1e-13)
+    KL = np.array([libor_convexity(M, 0.0, a, b) for a, b in zip(Tj[:-1], Tj[1:])])
+    BL = ((P[:-1] / P[1:] - Zf[:-1] / Zf[1:] * KL) * P[1:]).sum() / (0.25 * P[1:].sum())
+    assert abs(ccs.quote(pr) - BL) > 1e-7                   # the Libor K is not used (negative control)
+
+
+def test_gaussian_approx_and_exact_use_the_coupon():
+    cs = rfr_curves()
+    s = ga.SwapSetup(T0=5.0, theta=0.25, n=8, curves=cs)
+    a = ga.approx(M, s)
+    cbs = CurrencyBasisSwaption.make(5.0, 2.0)
+    assert cbs.underlying.quote(LGCMPricer(M, cs, exact=False)) == pytest.approx(a["B0"], rel=1e-13)
+    # the exact quadrature reprices the forward under the annuity measure (martingale check)
+    ex = ga.exact(M, s)
+    assert ex["B"]["mean"] == pytest.approx(a["B0"], abs=1e-14)
+    assert ex["Y"]["mean"] == pytest.approx(a["Y0"], abs=1e-14)
+
+
+def test_initial_curves_paths_keep_libor():
+    s = ga.SwapSetup(T0=5.0, theta=0.25, n=8, curves=CV)
+    _, _, _, _, K0, _ = ga._ingredients(M, s)
+    np.testing.assert_allclose(K0[1:], [libor_convexity(M, 0.0, a, b) for a, b in zip(s.Tj[:-1], s.Tj[1:])], rtol=1e-15)

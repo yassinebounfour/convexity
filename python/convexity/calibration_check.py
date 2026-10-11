@@ -29,7 +29,6 @@ import numpy as np
 from scipy.stats import norm
 
 from .instruments import CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap, Swaption
-from .market import libor_convexity
 from .montecarlo import Simulator, cv_mean_and_stderr, mean_and_stderr
 from .schemes import ExactScheme
 
@@ -167,7 +166,7 @@ def _fx_option(sim, st, cal, q):
 def cb_straddle_inputs(sim, st, cal, q):
     """Pathwise inputs of the CB-vol check at T0: (D, AB - A B0, A0, T0) with D = D^{f|d}_{T0}.
     A_{T0} = theta sum_j Z^{f|d}_{T0,T_j} and 1 + theta L^{f|d}_{T0,j} = kappa^f Z^{f|f}_{T0,j-1} /
-    Z^{f|f}_{T0,j} K_{T0,j} (Libor collateral convexity seen from T0, libor_convexity(m, T0, a, b)).
+    Z^{f|f}_{T0,j} K_{T0,j} (collateral convexity of the foreign coupon seen from T0, coupon.convexity(m, T0, a, b)).
     A B is the value of a tradable, so E[D (AB - A B0)] = 0 with B0 the time-0 spread of the pricer
     (convexities K_{0,j}); this control-mean identity is checked by the tests."""
     c, s, m = cal.curves, cal.curves.setup, cal.model
@@ -177,7 +176,8 @@ def cb_straddle_inputs(sim, st, cal, q):
     one = np.ones(res.n_paths)
     P = np.stack([one] + [sim.discount(res, c, "fd", t) for t in Tj[1:]], axis=1)
     Zf = np.stack([one] + [sim.discount(res, c, "ff", t) for t in Tj[1:]], axis=1)
-    K = np.array([libor_convexity(m, T0, a, b) for a, b in zip(Tj[:-1], Tj[1:])])
+    cp = c.coupon("f")
+    K = np.array([cp.convexity(m, T0, a, b) for a, b in zip(Tj[:-1], Tj[1:])])
     one_L = s.foreign_index.kappa * Zf[:, :-1] / Zf[:, 1:] * K
     one_Lr = s.domestic_index.kappa * P[:, :-1] / P[:, 1:]
     A = th * P[:, 1:].sum(1)
