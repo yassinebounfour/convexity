@@ -32,8 +32,8 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `curve_calibration.py` | generic sequential curve bootstrap with a convexity provider; `calibrate_curves(quotes)` is the DCB market practice |
 | `calibration.py` | `ModelSpec`, `BlockSpec`, `default_spec`, `calibrate(quotes, spec) -> Calibration`: Algorithm "LGCM calibration" of the notes |
 | `market_data.py` | `example_setup()`, `example_quotes()`: illustrative USD (SOFR) / EUR (ESTR, EURIBOR 3M) market, not live data |
-| `calibration_check.py` | `analytic_report(cal)` and `mc_report(cal, n_paths, seed)`: every quote repriced in closed form and by Monte Carlo (rows with market, model, error, standard error) |
-| `schemes.py` (`ExactScheme.simulate_dates`), `montecarlo.py` (`Simulator.simulate_dates`) | the LGCM state at every date of a grid along the same paths, in one pass |
+| `calibration_check.py` | `analytic_report(cal)` and `mc_report(cal, n_paths, seed, compounding_step=None)`: every quote repriced in closed form and by Monte Carlo (rows with market, model, error, standard error); compounded RFR coupons valued on paths by `CouponPaths` (fixing dates streamed, exact controls), `coupon_convexity_mc` for one coupon |
+| `schemes.py` (`ExactScheme.simulate_dates`), `montecarlo.py` (`Simulator.simulate_dates`) | the LGCM state at every date of a grid along the same paths, in one pass; `stream` dates are passed to `on_date` without being stored |
 | `tests/test_curves.py` | curves, instruments and the deterministic curve bootstrap |
 | `tests/test_calibration.py` | LGCM pricer, calibration and repricing checks (the Monte Carlo ones are marked `slow`) |
 | `repo.py` | bonds and repo (McCloud, *Repo convexity*): `RepoModel` (LGCM with block f = bond curve, c = discounting basis, no d factor, zero FX vol), `BondCurves`; `repo_convexity` (ln K^{repo}), `maturity_adjustment`, `forwardness_adjustment`, `repo_rate` (ACT/360 or ACT/365 accrual), `repo_discount_factor`; McCloud's Hull-White closed forms `hw_*`; `CouponBond`, `coupon_repo_rate` (frozen weights) and `coupon_repo_rate_exact` (Gauss–Hermite); `mc_repo_rate` |

@@ -314,3 +314,168 @@ def test_mc_inverted_forward_se_is_propagated():
     assert row.model == pytest.approx((1 / F - 1 / x0) * pip, rel=1e-9)
     assert row.stderr == pytest.approx(pip * sF / F**2, rel=1e-3)
     assert abs(row.z) < 4
+
+
+# ---------------------------------------------------------------------- Task 4: Monte Carlo of compounded coupons
+import dataclasses
+
+from convexity.calibration_check import CouponPaths, coupon_convexity_mc, with_compounding_step
+from convexity.instruments import CurrencyBasisSwaption
+from convexity.montecarlo import Simulator, mean_and_stderr
+from convexity.schemes import ExactScheme
+
+
+def test_simulate_dates_streams_dates_in_order_without_storing():
+    """on_date sees every date of dates and stream in increasing order; only `dates` are stored. The grid
+    (hence the draws) is the same as when all the dates are stored."""
+    sim = Simulator(M, scheme=ExactScheme(0.25))
+    seen = []
+    st = sim.simulate_dates([1.0], 2**6, seed=2, stream=[1.5, 0.0, 0.5, 1.0], on_date=lambda r: seen.append(r.T))
+    assert seen == [0.0, 0.5, 1.0, 1.5] and list(st) == [1.0]
+    full = sim.simulate_dates([0.0, 0.5, 1.0, 1.5], 2**6, seed=2)
+    np.testing.assert_array_equal(st(1.0).z, full(1.0).z)
+    only_stream = sim.simulate_dates([], 2**6, seed=2, stream=[1.0], on_date=lambda r: None)
+    assert len(only_stream) == 0
+    with pytest.raises(ValueError, match="at least one date"):
+        sim.simulate_dates([], 2**4, stream=[])
+
+
+@pytest.mark.parametrize("coupon", [Coupon("daily", 1 / 12), LIBOR])
+@pytest.mark.parametrize("a", [0.0, 1.0])
+def test_coupon_paths_match_a_hand_computation_on_stored_states(coupon, a):
+    """The streamed pathwise values (s = t_{n-1}, last fixing before b):
+    Y = D^{f|d}_s Z^{f|d}_{s,b} C_{<n-1} / Z^{f|f}_{s,b}, C1 = D^{f|d}_s Z^{f|d}_{s,b}, C2 = D^{f|d}_s A_{<n-1}
+    (A rolled on Z^{f|d}; D^{f|d}_a for Libor), C3 = D^{f|f}_s C_{<n-1}, rebuilt by hand from states stored
+    at every fixing date."""
+    b, P = a + 0.25, 2**8
+    sim = Simulator(M, scheme=ExactScheme(0.25))
+    cp = CouponPaths(sim, CV, coupon)
+    cp.add("x", [(a, b)])
+    st = sim.simulate_dates(cp.dates(), P, seed=4, on_date=cp)
+    g = coupon.grid(a, b)
+    C, A = np.ones(P), np.ones(P)
+    for t0, t1 in zip(g[:-2], g[1:-1]):
+        C = C / sim.discount(st(t0), CV, "ff", t1)
+        A = A / sim.discount(st(t0), CV, "fd", t1)
+    s = st(g[-2])
+    Dfd, Pab = sim.deflator(s, CV, "f", "d"), sim.discount(s, CV, "fd", b)
+    expect = dict(Y=Dfd * Pab * C / sim.discount(s, CV, "ff", b), C1=Dfd * Pab,
+                  C2=Dfd * A, C3=sim.deflator(s, CV, "f", "f") * C)
+    got = cp.sums("x")
+    for k, v in expect.items():
+        np.testing.assert_allclose(got[k], np.broadcast_to(v, (P,)), rtol=1e-13, err_msg=k)
+    if coupon.kind == "libor":
+        np.testing.assert_allclose(got["C2"], sim.deflator(st(a), CV, "f", "d"), rtol=1e-15)
+    assert cp.means("x") == pytest.approx(dict(C1=CV.Z0("fd", b), C2=CV.Z0("fd", a), C3=CV.Z0("ff", a)), rel=1e-15)
+
+
+def test_coupon_paths_value_the_continuous_coupon_on_its_daily_grid():
+    """No new simulator state for the continuous coupon: its paths are the daily product on
+    coupon_grid(a, b, step) (an O(step) approximation of exp(int r))."""
+    cp = CouponPaths(Simulator(M, scheme=ExactScheme(0.25)), CV, Coupon("continuous", 1 / 52))
+    np.testing.assert_array_equal(cp.grid(5.0, 5.25), coupon_grid(5.0, 5.25, 1 / 52))
+    cp.add("x", [(5.0, 5.25), (5.25, 5.5)])
+    np.testing.assert_allclose(cp.dates(), np.r_[coupon_grid(5.0, 5.25, 1 / 52)[:-1], coupon_grid(5.25, 5.5, 1 / 52)[:-1]])
+
+
+def test_with_compounding_step_changes_only_the_foreign_coupon_step():
+    cal = _cal("GBPUSD")
+    cal2 = with_compounding_step(cal, 1 / 52)
+    assert cal2.curves.coupon("f") == Coupon("daily", 1 / 52) and cal.curves.coupon("f") == Coupon("daily", 1 / 365)
+    assert cal2.model is cal.model and cal2.curves.x0 == cal.curves.x0
+    T = np.linspace(0.1, 30, 7)
+    for kind in ("dd", "ff", "fd", "df"):
+        np.testing.assert_array_equal(cal2.curves.Z0(kind, T), cal.curves.Z0(kind, T))
+    with pytest.raises(ValueError, match="OIS"):
+        with_compounding_step(_cal("EURUSD"), 1 / 52)
+
+
+@pytest.mark.slow
+def test_mc_daily_coupon_convexity_one_period():
+    """MC of K for Coupon("daily", 1/52) on [5, 5.25] (default_model, InitialCurves; 2^16 paths, seed 13,
+    weekly fixings simulated): within 4 s.e. of the closed form (measured z = -0.36, s.e. 1.5e-6 on
+    K - 1 = 4.9e-5), and K = 1 rejected (measured 33 s.e.). The Libor/daily gap (ln K_daily - ln K_Libor =
+    1.0e-7, the in-arrears term, about the same at every maturity: 1.05e-7 at 30Y, where s.e. 5.2e-6) is
+    0.07 s.e.: not resolvable (it would need ~2^28 paths). Reported, not asserted as a separation."""
+    c, a, b = Coupon("daily", 1 / 52), 5.0, 5.25
+    K, se = coupon_convexity_mc(M, CV, c, a, b, n_paths=2**16, seed=13)
+    k_cf = c.convexity(M, 0.0, a, b)
+    assert abs(K - k_cf) < 4 * se
+    assert abs(K - 1.0) > 10 * se                                     # negative control: no convexity
+    assert se < 4.5e-6                                                # measured 1.47e-6 (x3): no inflated s.e.
+    k_libor = LIBOR.convexity(M, 0.0, a, b)
+    assert abs(np.log(k_cf / k_libor)) < se                           # not resolvable: honest resolution
+
+
+@pytest.mark.slow
+def test_coupon_path_control_means():
+    """The control means used by the CCS valuation are exact identities: E[D^{f|d}_s Z^{f|d}_{s,b}] = P_b,
+    E[D^{f|d}_a] = P_a and E[D^{f|f}_s C_{<n-1}] = Z^{f|f}_{0,a} (native telescoping of the rolled
+    overnight account under f collateral)."""
+    sim = Simulator(M, scheme=ExactScheme(0.25))
+    cp = CouponPaths(sim, CV, Coupon("daily", 1 / 52))
+    cp.add("x", [(5.0, 5.25), (10.0, 10.25)])
+    sim.simulate_dates(cp.dates(), 2**15, seed=21, on_date=cp)
+    sums, means = cp.sums("x"), cp.means("x")
+    for k in ("C1", "C2", "C3"):
+        mu, se = mean_and_stderr(sums[k])
+        assert abs(mu - means[k]) < 4 * se, k
+
+
+RFR_MC_STEP = 1 / 52        # weekly compounding step on the paths and in the model (closed form exact for any step)
+# s.e. / |market| at 2^15 paths, seed 17, weekly (measured max x ~3; GBPUSD / USDJPY): CCS 7.0e-4 / 2.8e-4,
+# CB vols 5.2e-3 / 5.3e-3
+RFR_MAX_REL_SE = {"ResettingCCS": 2.2e-3, "CurrencyBasisSwaption": 1.6e-2}
+
+
+@pytest.fixture(scope="module", params=["GBPUSD", "USDJPY"])
+def rfr_mc(request):
+    cal = _cal(request.param)
+    qs = [q for q in cal.quotes.quotes if isinstance(q.instrument, (ResettingCCS, CurrencyBasisSwaption))
+          and q.instrument.pillar <= 5.0]
+    return cal, qs, mc_report(cal, n_paths=2**15, seed=17, quotes=qs, compounding_step=RFR_MC_STEP)
+
+
+@pytest.mark.slow
+def test_mc_reprices_rfr_ccs_and_cb_vols(rfr_mc):
+    """RFR markets GBPUSD (SONIA vs SOFR) and USDJPY (TONA vs SOFR), calibrated with the daily coupon; MC
+    (2^15 paths, seed 17) with a WEEKLY
+    compounding step on the paths and in the model (with_compounding_step): CCS 2Y, 3Y, 5Y and CB vols
+    1Y-5Y within 4 s.e. of the market quotes (measured max |z| 2.2 / 2.2; no bias over seeds 1-3 at 2^17:
+    2Y z = +0.4, -1.9, -0.4 on GBPUSD). The daily -> weekly change of the model quotes is below
+    0.1 s.e. (checked), so the market quotes are the right reference."""
+    cal, qs, rows = rfr_mc
+    assert {r.kind for r in rows} == set(RFR_MAX_REL_SE) and len(rows) == len(qs) == 7
+    bad = [(r.label, r.market, r.model, r.stderr) for r in rows if not abs(r.z) < 4]
+    assert not bad, bad
+    bad = [(r.label, r.stderr / abs(r.market)) for r in rows if not 0 < r.stderr < RFR_MAX_REL_SE[r.kind] * abs(r.market)]
+    assert not bad, bad
+    pr_w = with_compounding_step(cal, RFR_MC_STEP).pricer()
+    for r, q in zip(rows, qs):
+        assert abs(q.instrument.quote(pr_w) - q.value) < 0.1 * r.stderr, r.label
+
+
+def _libor_k_spread(cal, inst):
+    s, c = cal.curves.setup, cal.curves
+    Tj = inst.schedule(s)
+    P, Zf = c.Z0("fd", Tj), c.Z0("ff", Tj)
+    KL = np.array([libor_convexity(cal.model, 0.0, a, b) for a, b in zip(Tj[:-1], Tj[1:])])
+    return ((P[:-1] / P[1:] - Zf[:-1] / Zf[1:] * KL) * P[1:]).sum() / (s.foreign_index.tenor * P[1:].sum())
+
+
+@pytest.mark.slow
+def test_mc_rfr_negative_controls(rfr_mc):
+    """Negative control: the DCB spread (K = 1) of the 5Y CCS is far outside the error bars (measured at
+    2Y, 3Y, 5Y: GBPUSD 11.8, 17.8, 29.2 s.e.; USDJPY 3.3, 6.3, 13.4 s.e.). The spread with the Libor K in
+    place of the compounded K differs from the model by 0.0006-0.0010 bp, about 0.1-0.5 s.e. (measured z
+    against the MC: GBPUSD -1.7, -1.7, -0.9; USDJPY -2.0, -1.9, -0.9): NOT
+    resolvable at this path count (it would need ~400 times the paths), so it is reported, not asserted
+    as a separation; the exact check of the compounded K is the Gaussian benchmark of Task 1."""
+    cal, qs, rows = rfr_mc
+    by = {r.label: r for r in rows}
+    inst = ResettingCCS(5.0)
+    assert abs(inst.quote(DeterministicPricer(cal.curves)) - by[inst.label].model) / by[inst.label].stderr > 10
+    for T in (2.0, 3.0, 5.0):
+        inst = ResettingCCS(T)
+        r = by[inst.label]
+        assert abs(_libor_k_spread(cal, inst) - inst.quote(cal.pricer())) < r.stderr, inst.label   # resolution

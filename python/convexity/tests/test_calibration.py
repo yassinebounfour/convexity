@@ -342,7 +342,8 @@ def test_mc_report_stderr_bounded(mc_rows):
 @pytest.mark.slow
 def test_mc_rejects_missing_collateral_convexity(cal, mc_rows):
     """Negative control: the DCB spreads (K = 1) on the calibrated curves are far outside the MC error
-    bars (measured 19.7, 26.1, 35.6 s.e. at 5Y, 7Y, 10Y), so the CCS check detects the convexity."""
+    bars (measured 37.9, 50.0, 65.8 s.e. at 5Y, 7Y, 10Y with the native-account control C3 of
+    CouponPaths; 19.7, 26.1, 35.6 without it), so the CCS check detects the convexity."""
     dcb = DeterministicPricer(cal.curves)
     rows = {r.label: r for r in mc_rows}
     for T in (5.0, 7.0, 10.0):
