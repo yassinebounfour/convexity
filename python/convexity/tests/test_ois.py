@@ -144,7 +144,9 @@ def test_rfr_ccs_uses_the_compounded_convexity_not_libor():
     assert abs(ccs.quote(pr) - BL) > 1e-7                   # the Libor K is not used (negative control)
 
 
-def test_gaussian_approx_and_exact_use_the_coupon():
+def test_gaussian_approx_and_exact_forward_consistency():
+    """Martingale / pricer consistency only (shares _ingredients, so it does not by itself prove the coupon
+    is used: see test_ingredients_use_the_curves_coupon for that)."""
     cs = rfr_curves()
     s = ga.SwapSetup(T0=5.0, theta=0.25, n=8, curves=cs)
     a = ga.approx(M, s)
@@ -156,7 +158,65 @@ def test_gaussian_approx_and_exact_use_the_coupon():
     assert ex["Y"]["mean"] == pytest.approx(a["Y0"], abs=1e-14)
 
 
+def test_ingredients_use_the_curves_coupon():
+    s = ga.SwapSetup(T0=5.0, theta=0.25, n=8, curves=rfr_curves())
+    _, _, _, _, K0, KT = ga._ingredients(M, s)
+    pairs = list(zip(s.Tj[:-1], s.Tj[1:]))
+    for K, t in ((K0, 0.0), (KT, s.T0)):
+        sonia = np.array([SONIA.coupon.convexity(M, t, a, b) for a, b in pairs])
+        libor = np.array([libor_convexity(M, t, a, b) for a, b in pairs])
+        np.testing.assert_allclose(K[1:], sonia, rtol=1e-14)
+        # discriminating: the gap between the compounded and the Libor K is resolved by this threshold
+        assert np.all(np.abs(np.log(K[1:]) - np.log(libor)) > 1e-9)
+
+
+def test_swap_convexities_pick_up_the_curves_coupon():
+    from convexity.payoffs import Swap
+    sw = Swap(5.0, 8, 0.25, 0.03, ccy="f", collateral="d")
+    pairs = list(zip(sw.Tj[:-1], sw.Tj[1:]))
+    for t in (0.0, 2.0):
+        sonia = np.array([SONIA.coupon.convexity(M, t, a, b) for a, b in pairs])
+        libor = np.array([libor_convexity(M, t, a, b) for a, b in pairs])
+        np.testing.assert_allclose(sw.convexities(M, t, rfr_curves()), sonia, rtol=1e-14)
+        np.testing.assert_allclose(sw.convexities(M, t), libor, rtol=1e-14)             # default: Libor
+        np.testing.assert_allclose(sw.convexities(M, t, CV), libor, rtol=1e-14)         # InitialCurves: Libor
+        assert np.all(np.abs(np.log(sonia) - np.log(libor)) > 1e-9)
+
+
+def test_cb_straddle_inputs_use_the_curves_coupon():
+    from types import SimpleNamespace
+    from convexity.calibration_check import cb_straddle_inputs
+    from convexity.montecarlo import Simulator, mean_and_stderr
+    from convexity.schemes import ExactScheme
+    cs = rfr_curves()
+    cal = SimpleNamespace(curves=cs, model=M, pricer=lambda: LGCMPricer(M, cs))
+    inst = CurrencyBasisSwaption.make(5.0, 2.0)
+    q = SimpleNamespace(instrument=inst)
+    sim = Simulator(M, scheme=ExactScheme(0.25))
+    st = sim.simulate_dates([5.0], 2**14, seed=5)
+    D, V, A0, T0 = cb_straddle_inputs(sim, st, cal, q)
+    # rebuild the pathwise control by hand with the SONIA K seen from T0 and with the Libor K
+    u = inst.underlying
+    Tj = u.schedule(SETUP_RFR)
+    res = st(T0)
+    one = np.ones(res.n_paths)
+    P = np.stack([one] + [sim.discount(res, cs, "fd", t) for t in Tj[1:]], axis=1)
+    Zf = np.stack([one] + [sim.discount(res, cs, "ff", t) for t in Tj[1:]], axis=1)
+    B0, th = u.quote(cal.pricer()), SONIA.tenor
+
+    def control(Kfun):
+        K = np.array([Kfun(M, T0, a, b) for a, b in zip(Tj[:-1], Tj[1:])])
+        AB = ((P[:, :-1] / P[:, 1:] - Zf[:, :-1] / Zf[:, 1:] * K) * P[:, 1:]).sum(1)
+        return AB - th * P[:, 1:].sum(1) * B0
+    np.testing.assert_allclose(V, control(SONIA.coupon.convexity), rtol=1e-12, atol=1e-14)
+    assert np.max(np.abs(V - control(lambda m, t, a, b: libor_convexity(m, t, a, b)))) > 1e-9
+    mu, se = mean_and_stderr(D * V)                        # zero-mean control identity with the compounded K
+    assert abs(mu) < 4 * se
+
+
 def test_initial_curves_paths_keep_libor():
     s = ga.SwapSetup(T0=5.0, theta=0.25, n=8, curves=CV)
     _, _, _, _, K0, _ = ga._ingredients(M, s)
-    np.testing.assert_allclose(K0[1:], [libor_convexity(M, 0.0, a, b) for a, b in zip(s.Tj[:-1], s.Tj[1:])], rtol=1e-15)
+    _, _, _, _, K0, KT = ga._ingredients(M, s)
+    for K, t in ((K0, 0.0), (KT, s.T0)):
+        np.testing.assert_allclose(K[1:], [libor_convexity(M, t, a, b) for a, b in zip(s.Tj[:-1], s.Tj[1:])], rtol=1e-15)
