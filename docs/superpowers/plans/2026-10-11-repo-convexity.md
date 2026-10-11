@@ -19,7 +19,7 @@
 - Model time is in ACT/365 years. The accrual δ = `accrual(s, e, day_count)` only quotes the rate. The default is `"ACT/360"` (δ = (e − s)·365/360); `"ACT/365"` is also allowed.
 - Out of scope: haircuts, default and recovery, special vs GC repo dynamics (z̄ = 0 except in a Remark), calibration to repo quotes, calendars, business-day adjustment, settlement lags.
 - LaTeX build: `cd docs && pdflatex -interaction=nonstopmode CollateralDiscounting.tex` (twice). It must end with 0 errors and only the three known warnings: multiply defined `eq:cb_r_swaplet`, `eq:forward_cb_non_resetting`, and undefined `eq:cb_r_swaplet2`.
-- Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Commit messages have no `Co-Authored-By` or other Claude attribution lines.
 - Match the surrounding code: module docstrings that cite the notes' statements, terse comments, no type-hint noise beyond what `lgcm.py` and `curves.py` use.
 
 ## Review Focus
@@ -347,9 +347,7 @@ Expected: all pass (18 tests). The prototype measured these on the same models: 
 
 ```bash
 git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity add python/convexity/repo.py python/convexity/tests/test_repo.py
-git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: LGCM repo convexity, maturity and forwardness adjustments, repo rate
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: LGCM repo convexity, maturity and forwardness adjustments, repo rate"
 ```
 
 ---
@@ -539,9 +537,7 @@ If `test_hull_white_matches_mccloud` fails, McCloud's paper or the transcription
 
 ```bash
 git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity add python/convexity/repo.py python/convexity/tests/test_repo.py
-git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: McCloud's Hull-White closed forms and repo curve identities
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: McCloud's Hull-White closed forms and repo curve identities"
 ```
 
 ---
@@ -753,9 +749,7 @@ Expected: all pass. If `test_frozen_weights_error_order` measures ratios outside
 
 ```bash
 git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity add python/convexity/repo.py python/convexity/tests/test_repo.py
-git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: coupon bond repo, exact Gauss-Hermite benchmark and frozen-weights approximation
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: coupon bond repo, exact Gauss-Hermite benchmark and frozen-weights approximation"
 ```
 
 ---
@@ -927,9 +921,7 @@ Expected: 106 + the new tests pass, 0 failures.
 
 ```bash
 git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity add python/convexity/repo.py python/convexity/tests/test_repo.py python/convexity/README.md
-git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: Monte Carlo benchmark, overnight repo limits, README
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "repo: Monte Carlo benchmark, overnight repo limits, README"
 ```
 
 ---
@@ -1169,9 +1161,7 @@ Run: `cd python && python -m pytest convexity/tests/test_repo.py -q -rA 2>&1 | t
 
 ```bash
 git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity add docs/CollateralDiscounting.tex
-git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "notes: section Bonds, repo and repo convexity
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "notes: section Bonds, repo and repo convexity"
 ```
 
 ---
@@ -1482,9 +1472,7 @@ Export to HTML (`marimo export html python/notebooks/repo_convexity.py -o <scrat
 
 ```bash
 git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity add python/notebooks/repo_convexity.py
-git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "notebook: repo convexity impacts
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity commit -m "notebook: repo convexity impacts"
 ```
 
 ---
@@ -1511,4 +1499,4 @@ For each number in `rema:repo_verification`, in the Remarks of the new section, 
 ```bash
 git -C /Users/leyack/Documents/QuantFinance/ClaudeProjects/convexity/.claude/worktrees/repo-convexity status --short
 ```
-If anything changed, commit it with the message `repo: align quoted numbers with measurements` plus the Co-Authored-By line.
+If anything changed, commit it with the message `repo: align quoted numbers with measurements`.
