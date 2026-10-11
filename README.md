@@ -7,14 +7,14 @@ derivations numerically.
 |---|---|
 | `docs/CollateralDiscounting.tex` | HJM framework with multiple currencies and stochastic collateral; the Quasi-Gaussian and Linear Gaussian Collateral Models (QGCM / LGCM); convexity adjustments, Gaussian approximations of swap rates and currency basis spreads, simulation, calibration |
 | `docs/smfart.cls`, `docs/smfbook.cls` | Société Mathématique de France document classes (`CollateralDiscounting.tex` itself uses `amsart`) |
-| `python/collateraldiscounting/` | numerical companion: LGCM, closed-form covariance integrals, exact transitions, moment-ODE benchmark, Gaussian approximations, a vectorised Monte Carlo simulator (QGCM and LGCM) and a payoff hierarchy. See its `README.md` |
+| `python/convexity/` | numerical companion: LGCM, closed-form covariance integrals, exact transitions, moment-ODE benchmark, Gaussian approximations, a vectorised Monte Carlo simulator (QGCM and LGCM) and a payoff hierarchy. See its `README.md` |
 
 ## Usage
 
 ```bash
 cd docs && pdflatex -interaction=nonstopmode CollateralDiscounting.tex   # twice, for refs
-cd python && python -m pytest collateraldiscounting -q                   # ~75 s
-cd python && python -m collateraldiscounting.mc_verification             # Monte Carlo report, ~2.5 min
+cd python && python -m pytest convexity -q                   # ~75 s
+cd python && python -m convexity.mc_verification             # Monte Carlo report, ~2.5 min
 ```
 
 Requires a LaTeX distribution with `amsart`, and Python with numpy, scipy and sympy.

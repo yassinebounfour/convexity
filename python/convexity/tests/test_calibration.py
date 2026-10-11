@@ -4,13 +4,13 @@ import pytest
 from scipy.integrate import quad
 from scipy.stats import norm
 
-from collateraldiscounting import gaussian_approx as ga
-from collateraldiscounting.lgcm import Model
-from collateraldiscounting.curves import Index, LGCMSetup, CurveSet, PiecewiseFlatCurve, SpreadCurve
-from collateraldiscounting.instruments import (Swap, ResettingCCS, Swaption, FXOption, CurrencyBasisSwaption)
-from collateraldiscounting.pricers import (LGCMPricer, DeterministicPricer, native_swaption_variance,
+from convexity import gaussian_approx as ga
+from convexity.lgcm import Model
+from convexity.curves import Index, LGCMSetup, CurveSet, PiecewiseFlatCurve, SpreadCurve
+from convexity.instruments import (Swap, ResettingCCS, Swaption, FXOption, CurrencyBasisSwaption)
+from convexity.pricers import (LGCMPricer, DeterministicPricer, native_swaption_variance,
                                            native_swaption_exact_vol)
-from collateraldiscounting.market import libor_convexity, fx_total_variance
+from convexity.market import libor_convexity, fx_total_variance
 
 SOFR = Index("USD_SOFR", "USD")
 ESTR = Index("EUR_ESTR", "EUR")
@@ -165,10 +165,10 @@ def test_multifactor_gaussian_variance_vs_brute_force_and_pricer_fallback():
 
 # ---------------------------------------------------------------------- Task 5: model calibration
 import dataclasses
-from collateraldiscounting.calibration import calibrate, default_spec, BlockSpec, ModelSpec, CalibrationError
-from collateraldiscounting.curve_calibration import calibrate_curves
-from collateraldiscounting.market_data import example_quotes
-from collateraldiscounting.instruments import Quote, MarketQuotes, FXForward
+from convexity.calibration import calibrate, default_spec, BlockSpec, ModelSpec, CalibrationError
+from convexity.curve_calibration import calibrate_curves
+from convexity.market_data import example_quotes
+from convexity.instruments import Quote, MarketQuotes, FXForward
 
 MQ = example_quotes()
 
@@ -265,9 +265,9 @@ def test_cb_vols_not_moved_by_later_expiries(cal):
 
 
 # ---------------------------------------------------------------------- Task 6: repricing checks
-from collateraldiscounting.montecarlo import Simulator, cv_mean_and_stderr, mean_and_stderr
-from collateraldiscounting.schemes import ExactScheme
-from collateraldiscounting.calibration_check import analytic_report, mc_report
+from convexity.montecarlo import Simulator, cv_mean_and_stderr, mean_and_stderr
+from convexity.schemes import ExactScheme
+from convexity.calibration_check import analytic_report, mc_report
 
 
 def test_simulate_dates_martingales(cal):
@@ -310,7 +310,7 @@ def test_analytic_report(cal):
     assert all(0 < r.approx / r.model - 1 < 1e-2 for r in sw)
 
 
-from collateraldiscounting.calibration_check import CheckRow, cb_straddle_inputs
+from convexity.calibration_check import CheckRow, cb_straddle_inputs
 
 MC_SUBSET = [q for q in MQ.quotes if q.instrument.pillar <= 10.0 and not (
     isinstance(q.instrument, Swaption) and q.instrument.expiry > 5)]
@@ -369,7 +369,7 @@ def test_mc_rejects_gaussian_swaption_approximation(cal):
 @pytest.mark.slow
 def test_cb_vol_control_has_zero_mean(cal):
     """The control D (AB - A B0) of the CB-vol straddle (K_{T0,j} at T0, B0 with K_{0,j}) has mean 0."""
-    from collateraldiscounting.instruments import CurrencyBasisSwaption as CBS
+    from convexity.instruments import CurrencyBasisSwaption as CBS
     qs = [q for q in MC_SUBSET if isinstance(q.instrument, CBS)]
     sim = Simulator(cal.model, scheme=ExactScheme(0.25))
     st = sim.simulate_dates(sorted({q.instrument.expiry for q in qs}), 2**15, seed=11)

@@ -7,8 +7,8 @@ Environment (from the repository root): `conda env create -f environment.yml` (P
 `pip install -r requirements.txt` in an existing environment. Run the tests from `python/`:
 
 ```
-python -m pytest collateraldiscounting -q                  # full suite (~1 min)
-python -m pytest collateraldiscounting -q -m "not slow"    # without the Monte Carlo repricing tests
+python -m pytest convexity -q                  # full suite (~1 min)
+python -m pytest convexity -q -m "not slow"    # without the Monte Carlo repricing tests
 ```
 
 | file | contents |
@@ -20,7 +20,7 @@ python -m pytest collateraldiscounting -q -m "not slow"    # without the Monte C
 | `schemes.py` | `MCScheme` base class and its schemes: `EulerScheme(dt, y_mode)` for the QGCM with stochastic local vol and simulated `y_t`, `v^{f,c}_t`; `ExactScheme(dt)` with exact Gaussian transitions for the LGCM |
 | `montecarlo.py` | `Simulator(model, kappa, floor, scheme)`: QGCM local vol, reconstruction formulas and deflators; path generation is delegated to the scheme. Vectorised over paths, antithetic |
 | `payoffs.py` | `Payoff` hierarchy and `price(sim, payoffs, curves, n_paths, seed)` |
-| `mc_verification.py` | Monte Carlo verification of the approximations; `python -m collateraldiscounting.mc_verification` prints the full report (~2.5 min) |
+| `mc_verification.py` | Monte Carlo verification of the approximations; `python -m convexity.mc_verification` prints the full report (~2.5 min) |
 | `gaussian_approx.py` | Gaussian approximations of the forward swap rate Y^{f\|d} and the resetting currency basis spread B^{f/d\|d,r}, and their exact benchmark by 2D Gauss–Hermite quadrature |
 | `tests/test_lgcm.py` | the checks quoted in the verification remarks of the notes |
 | `tests/test_montecarlo.py` | reduced Monte Carlo checks (4 standard error tolerance, fixed seeds) |
@@ -76,11 +76,11 @@ swaption matrix) and one CB vol and one FX vol per expiry; two quotes with the s
 `CalibrationError` (Z^{f|d} cannot be built). Run from `python/`:
 
 ```python
-from collateraldiscounting.market_data import example_quotes
-from collateraldiscounting.calibration import calibrate
-from collateraldiscounting.calibration_check import analytic_report, mc_report
-from collateraldiscounting.curve_calibration import calibrate_curves
-from collateraldiscounting.instruments import Swaption, FXOption, CurrencyBasisSwaption
+from convexity.market_data import example_quotes
+from convexity.calibration import calibrate
+from convexity.calibration_check import analytic_report, mc_report
+from convexity.curve_calibration import calibrate_curves
+from convexity.instruments import Swaption, FXOption, CurrencyBasisSwaption
 
 cal = calibrate(example_quotes())                # ~5.5 s; cal.model, cal.curves, cal.diagnostics
 rows = analytic_report(cal)                      # every quote repriced in closed form
@@ -107,7 +107,7 @@ theorem applies, and `kappa = 0` is the LGCM. Simulation is under Q^{d,RN} with 
 `exp(-int r^{d|d})`. Speed: 2^18 antithetic paths over 5Y take about 12 s with the Euler scheme
 (dt = 0.02) and 2 s with the exact LGCM scheme.
 
-Results of `python -m collateraldiscounting.mc_verification` (2^18 paths, measured):
+Results of `python -m convexity.mc_verification` (2^18 paths, measured):
 
 | check | result |
 |---|---|
@@ -144,11 +144,11 @@ under d or f collateral. For "fd" swaps in the QGCM, the Libor collateral convex
 LGCM one (an approximation; section 4 of the report finds it accurate).
 
 ```python
-from collateraldiscounting.lgcm import default_model
-from collateraldiscounting.montecarlo import Simulator
-from collateraldiscounting.schemes import EulerScheme
-from collateraldiscounting.market import InitialCurves
-from collateraldiscounting.payoffs import Swaption, FXOption, price
+from convexity.lgcm import default_model
+from convexity.montecarlo import Simulator
+from convexity.schemes import EulerScheme
+from convexity.market import InitialCurves
+from convexity.payoffs import Swaption, FXOption, price
 
 m, curves = default_model(), InitialCurves()
 sim = Simulator(m, kappa=15.0, scheme=EulerScheme(dt=0.02))     # QGCM; ExactScheme() for the LGCM

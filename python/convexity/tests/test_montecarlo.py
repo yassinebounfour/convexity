@@ -1,17 +1,17 @@
 """Monte Carlo checks of the LGCM / QGCM (reduced versions of mc_verification.main()).
 
 Statistical tests use a 4-standard-error tolerance; fixed seeds make them deterministic.
-Run from python/ with ``python -m pytest collateraldiscounting -q``.
+Run from python/ with ``python -m pytest convexity -q``.
 """
 from math import sqrt
 
 import numpy as np
 import pytest
 
-from collateraldiscounting.lgcm import default_model
-from collateraldiscounting.montecarlo import Simulator
-from collateraldiscounting.schemes import EulerScheme, ExactScheme
-from collateraldiscounting import mc_verification as mv, gaussian_approx as ga, transitions
+from convexity.lgcm import default_model
+from convexity.montecarlo import Simulator
+from convexity.schemes import EulerScheme, ExactScheme
+from convexity import mc_verification as mv, gaussian_approx as ga, transitions
 
 Z = 4.0
 

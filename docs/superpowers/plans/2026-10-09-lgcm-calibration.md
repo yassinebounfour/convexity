@@ -18,7 +18,7 @@ one node per pillar; the LGCM calibrator wraps it in a fixed point with the coll
 
 ## Global Constraints
 
-- Run tests from `python/`: `python -m pytest collateraldiscounting -q`. The 57 existing tests must keep passing.
+- Run tests from `python/`: `python -m pytest convexity -q`. The 57 existing tests must keep passing.
 - Monte Carlo tests: 4 standard error tolerance, fixed seeds, control variates where noise hides the effect.
 - Exact vs asymptotic vs conjectural must be distinguished; quoted errors are measured numbers.
 - Notation: blocks `d`, `f`, `c`, `x`; Cheyette state convention.
@@ -41,20 +41,20 @@ one node per pillar; the LGCM calibrator wraps it in a fixed point with the coll
 | file | status | responsibility |
 |---|---|---|
 | `requirements.txt`, `environment.yml` (repo root) | create | reproducible environment |
-| `python/collateraldiscounting/curves.py` | create | `Index`, `CurveKey`, `DiscountCurveKey`, `ForwardCurveKey`, `Curve`, `PiecewiseFlatCurve`, `SpreadCurve`, `FunctionCurve`, `LGCMSetup`, `CurveSet` |
-| `python/collateraldiscounting/instruments.py` | create | `schedule`, `Instrument`, `Swap`, `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`, `Quote`, `MarketQuotes` |
-| `python/collateraldiscounting/pricers.py` | create | `Pricer`, `DeterministicPricer`, `LGCMPricer`, `native_swaption_variance`, `native_swaption_exact_vol` |
-| `python/collateraldiscounting/curve_calibration.py` | create | `CalibrationError`, `BootstrapReport`, `bootstrap`, `calibrate_curves` |
-| `python/collateraldiscounting/calibration.py` | create | `BlockSpec`, `ModelSpec`, `default_spec`, `Calibration`, `calibrate` |
-| `python/collateraldiscounting/market_data.py` | create | `example_setup`, `example_quotes` (USD/EUR) |
-| `python/collateraldiscounting/calibration_check.py` | create | `CheckRow`, `analytic_report`, `mc_report` |
-| `python/collateraldiscounting/schemes.py` | modify | `MCScheme.simulate_dates`, `ExactScheme.simulate_dates`, `PathStates` |
-| `python/collateraldiscounting/montecarlo.py` | modify | `Simulator.simulate_dates`, `cv_mean_and_stderr` |
-| `python/collateraldiscounting/tests/test_curves.py` | create | Tasks 1–3 tests |
-| `python/collateraldiscounting/tests/test_calibration.py` | create | Tasks 4–6 tests |
+| `python/convexity/curves.py` | create | `Index`, `CurveKey`, `DiscountCurveKey`, `ForwardCurveKey`, `Curve`, `PiecewiseFlatCurve`, `SpreadCurve`, `FunctionCurve`, `LGCMSetup`, `CurveSet` |
+| `python/convexity/instruments.py` | create | `schedule`, `Instrument`, `Swap`, `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`, `Quote`, `MarketQuotes` |
+| `python/convexity/pricers.py` | create | `Pricer`, `DeterministicPricer`, `LGCMPricer`, `native_swaption_variance`, `native_swaption_exact_vol` |
+| `python/convexity/curve_calibration.py` | create | `CalibrationError`, `BootstrapReport`, `bootstrap`, `calibrate_curves` |
+| `python/convexity/calibration.py` | create | `BlockSpec`, `ModelSpec`, `default_spec`, `Calibration`, `calibrate` |
+| `python/convexity/market_data.py` | create | `example_setup`, `example_quotes` (USD/EUR) |
+| `python/convexity/calibration_check.py` | create | `CheckRow`, `analytic_report`, `mc_report` |
+| `python/convexity/schemes.py` | modify | `MCScheme.simulate_dates`, `ExactScheme.simulate_dates`, `PathStates` |
+| `python/convexity/montecarlo.py` | modify | `Simulator.simulate_dates`, `cv_mean_and_stderr` |
+| `python/convexity/tests/test_curves.py` | create | Tasks 1–3 tests |
+| `python/convexity/tests/test_calibration.py` | create | Tasks 4–6 tests |
 | `python/notebooks/lgcm_calibration.py` | create | marimo notebook |
 | `docs/CollateralDiscounting.tex` | modify | calibration section rewrite |
-| `python/collateraldiscounting/README.md`, `__init__.py` | modify | document new modules |
+| `python/convexity/README.md`, `__init__.py` | modify | document new modules |
 
 Note: `payoffs.py` already defines classes `Swap`, `Swaption`, `FXForward`, `FXOption` (Monte Carlo
 payoffs). The calibration instruments live in `instruments.py` and are never imported together
@@ -66,8 +66,8 @@ no `CurrencyBasisSwaption` payoff is added to `payoffs.py`; the spec is updated 
 ### Task 1: Environment files and curves
 
 **Files:**
-- Create: `requirements.txt`, `environment.yml`, `python/collateraldiscounting/curves.py`
-- Test: `python/collateraldiscounting/tests/test_curves.py`
+- Create: `requirements.txt`, `environment.yml`, `python/convexity/curves.py`
+- Test: `python/convexity/tests/test_curves.py`
 
 **Interfaces:**
 - Produces: `Index(name, currency, kind="OIS", tenor=0.25, spread=0.0)` with `.kappa`;
@@ -111,7 +111,7 @@ notebook runs (Task 7), pin the tested versions (`==`) in `requirements.txt`.
 import numpy as np
 import pytest
 
-from collateraldiscounting.curves import (Index, DiscountCurveKey, ForwardCurveKey, PiecewiseFlatCurve,
+from convexity.curves import (Index, DiscountCurveKey, ForwardCurveKey, PiecewiseFlatCurve,
                                           SpreadCurve, FunctionCurve, LGCMSetup, CurveSet)
 
 SOFR = Index("USD_SOFR", "USD")
@@ -183,8 +183,8 @@ def test_curve_set_initial_curves_interface():
 
 - [ ] **Step 3: run, expect ImportError**
 
-Run: `cd python && python -m pytest collateraldiscounting/tests/test_curves.py -q`
-Expected: FAIL (`ModuleNotFoundError: collateraldiscounting.curves`).
+Run: `cd python && python -m pytest convexity/tests/test_curves.py -q`
+Expected: FAIL (`ModuleNotFoundError: convexity.curves`).
 
 - [ ] **Step 4: implement `curves.py`**
 
@@ -448,12 +448,12 @@ class CurveSet:
 
 - [ ] **Step 5: run tests, expect PASS**
 
-Run: `cd python && python -m pytest collateraldiscounting/tests/test_curves.py -q` → 6 passed.
+Run: `cd python && python -m pytest convexity/tests/test_curves.py -q` → 6 passed.
 
 - [ ] **Step 6: commit**
 
 ```bash
-git add requirements.txt environment.yml python/collateraldiscounting/curves.py python/collateraldiscounting/tests/test_curves.py
+git add requirements.txt environment.yml python/convexity/curves.py python/convexity/tests/test_curves.py
 git commit -m "Curves: indices, curve keys, piecewise flat and spread curves, curve set; environment files"
 ```
 
@@ -462,8 +462,8 @@ git commit -m "Curves: indices, curve keys, piecewise flat and spread curves, cu
 ### Task 2: Instruments, quotes and the deterministic pricer
 
 **Files:**
-- Create: `python/collateraldiscounting/instruments.py`, `python/collateraldiscounting/pricers.py` (base + deterministic only)
-- Test: `python/collateraldiscounting/tests/test_curves.py` (append)
+- Create: `python/convexity/instruments.py`, `python/convexity/pricers.py` (base + deterministic only)
+- Test: `python/convexity/tests/test_curves.py` (append)
 
 **Interfaces:**
 - Consumes: Task 1 names.
@@ -482,9 +482,9 @@ git commit -m "Curves: indices, curve keys, piecewise flat and spread curves, cu
 - [ ] **Step 1: failing tests** (append to `tests/test_curves.py`)
 
 ```python
-from collateraldiscounting.instruments import (schedule, Swap, FXForward, ResettingCCS, Swaption, FXOption,
+from convexity.instruments import (schedule, Swap, FXForward, ResettingCCS, Swaption, FXOption,
                                                CurrencyBasisSwaption, Quote, MarketQuotes)
-from collateraldiscounting.pricers import DeterministicPricer
+from convexity.pricers import DeterministicPricer
 
 
 def flat_curves(rd=0.04, rf=0.02, q=-0.001, x0=1.1):
@@ -555,7 +555,7 @@ def test_market_quotes_selectors():
     assert len(mq.without(FXOption).quotes) == 2
 ```
 
-- [ ] **Step 2: run, expect ImportError** — `python -m pytest collateraldiscounting/tests/test_curves.py -q`.
+- [ ] **Step 2: run, expect ImportError** — `python -m pytest convexity/tests/test_curves.py -q`.
 
 - [ ] **Step 3: implement `instruments.py`**
 
@@ -901,7 +901,7 @@ class DeterministicPricer(Pricer):
         return 1.0
 ```
 
-- [ ] **Step 5: run tests, expect PASS** — `python -m pytest collateraldiscounting/tests/test_curves.py -q` → 12 passed.
+- [ ] **Step 5: run tests, expect PASS** — `python -m pytest convexity/tests/test_curves.py -q` → 12 passed.
 
 - [ ] **Step 6: commit** — `git add` both modules and the test; message "Instruments, quotes and the deterministic pricer".
 
@@ -910,8 +910,8 @@ class DeterministicPricer(Pricer):
 ### Task 3: Generic curve bootstrap
 
 **Files:**
-- Create: `python/collateraldiscounting/curve_calibration.py`
-- Test: `python/collateraldiscounting/tests/test_curves.py` (append)
+- Create: `python/convexity/curve_calibration.py`
+- Test: `python/convexity/tests/test_curves.py` (append)
 
 **Interfaces:**
 - Consumes: Tasks 1–2.
@@ -923,7 +923,7 @@ class DeterministicPricer(Pricer):
 - [ ] **Step 1: failing tests** (append)
 
 ```python
-from collateraldiscounting.curve_calibration import calibrate_curves, bootstrap, BootstrapReport, CalibrationError
+from convexity.curve_calibration import calibrate_curves, bootstrap, BootstrapReport, CalibrationError
 
 
 def linear_quotes(points=False):
@@ -1103,8 +1103,8 @@ def calibrate_curves(quotes, pricer_factory=DeterministicPricer):
 ### Task 4: LGCM pricer
 
 **Files:**
-- Modify: `python/collateraldiscounting/pricers.py` (append `LGCMPricer` and swaption functions)
-- Test: `python/collateraldiscounting/tests/test_calibration.py` (create)
+- Modify: `python/convexity/pricers.py` (append `LGCMPricer` and swaption functions)
+- Test: `python/convexity/tests/test_calibration.py` (create)
 
 **Interfaces:**
 - Consumes: `lgcm.Model` (`idx`, `G`, `covint`, `Y`, `sig`, `beta`, `R`), `market.libor_convexity`,
@@ -1122,14 +1122,14 @@ import pytest
 from scipy.integrate import quad
 from scipy.stats import norm
 
-from collateraldiscounting import gaussian_approx as ga
-from collateraldiscounting.lgcm import Model
-from collateraldiscounting.curves import Index, LGCMSetup, CurveSet, PiecewiseFlatCurve, SpreadCurve
-from collateraldiscounting.instruments import (Swap, ResettingCCS, Swaption, FXOption, CurrencyBasisSwaption,
+from convexity import gaussian_approx as ga
+from convexity.lgcm import Model
+from convexity.curves import Index, LGCMSetup, CurveSet, PiecewiseFlatCurve, SpreadCurve
+from convexity.instruments import (Swap, ResettingCCS, Swaption, FXOption, CurrencyBasisSwaption,
                                                schedule)
-from collateraldiscounting.pricers import (LGCMPricer, DeterministicPricer, native_swaption_variance,
+from convexity.pricers import (LGCMPricer, DeterministicPricer, native_swaption_variance,
                                            native_swaption_exact_vol)
-from collateraldiscounting.market import libor_convexity, fx_total_variance
+from convexity.market import libor_convexity, fx_total_variance
 
 SOFR = Index("USD_SOFR", "USD")
 ESTR = Index("EUR_ESTR", "EUR")
@@ -1225,7 +1225,7 @@ def test_lgcm_pricer_convexity_and_fx_vol():
     assert ccs.quote(pr) < ccs.quote(DeterministicPricer(cs))
 ```
 
-- [ ] **Step 2: run, expect ImportError** — `python -m pytest collateraldiscounting/tests/test_calibration.py -q`.
+- [ ] **Step 2: run, expect ImportError** — `python -m pytest convexity/tests/test_calibration.py -q`.
 
 - [ ] **Step 3: implement** (append to `pricers.py`, and extend its docstring/imports)
 
@@ -1335,8 +1335,8 @@ class LGCMPricer(Pricer):
 ### Task 5: Model calibration
 
 **Files:**
-- Create: `python/collateraldiscounting/calibration.py`, `python/collateraldiscounting/market_data.py`
-- Test: `python/collateraldiscounting/tests/test_calibration.py` (append)
+- Create: `python/convexity/calibration.py`, `python/convexity/market_data.py`
+- Test: `python/convexity/tests/test_calibration.py` (append)
 
 **Interfaces:**
 - Consumes: Tasks 1–4.
@@ -1350,10 +1350,10 @@ class LGCMPricer(Pricer):
 
 ```python
 import dataclasses
-from collateraldiscounting.calibration import calibrate, default_spec, BlockSpec, ModelSpec, CalibrationError
-from collateraldiscounting.curve_calibration import calibrate_curves
-from collateraldiscounting.market_data import example_quotes
-from collateraldiscounting.instruments import Quote, MarketQuotes, FXForward
+from convexity.calibration import calibrate, default_spec, BlockSpec, ModelSpec, CalibrationError
+from convexity.curve_calibration import calibrate_curves
+from convexity.market_data import example_quotes
+from convexity.instruments import Quote, MarketQuotes, FXForward
 
 MQ = example_quotes()
 
@@ -1749,7 +1749,7 @@ The swaption fixed leg is annual and the EURIBOR float leg quarterly; `Swaption.
 numbers, adjust the offending market numbers (keep them realistic) and record why in the commit
 message; do not change the algorithm to accommodate them.
 
-- [ ] **Step 5: run tests, expect PASS** — `python -m pytest collateraldiscounting/tests/test_calibration.py -q`.
+- [ ] **Step 5: run tests, expect PASS** — `python -m pytest convexity/tests/test_calibration.py -q`.
   Then print `cal.diagnostics` and `cal.levels(b)` for each block (scratch script) and check the levels
   are positive and plausible (lambda^d ~ 0.6–1.2%, lambda^c ~ 0.1–0.5%, sigma^x ~ 5–10%).
 
@@ -1760,9 +1760,9 @@ message; do not change the algorithm to accommodate them.
 ### Task 6: Repricing checks — analytic and Monte Carlo
 
 **Files:**
-- Modify: `python/collateraldiscounting/schemes.py`, `python/collateraldiscounting/montecarlo.py`
-- Create: `python/collateraldiscounting/calibration_check.py`
-- Test: `python/collateraldiscounting/tests/test_calibration.py` (append)
+- Modify: `python/convexity/schemes.py`, `python/convexity/montecarlo.py`
+- Create: `python/convexity/calibration_check.py`
+- Test: `python/convexity/tests/test_calibration.py` (append)
 
 **Interfaces:**
 - Consumes: Tasks 1–5, `Simulator.discount/deflator/fx_spot`, `SimResult`, `transitions.transition`.
@@ -1776,9 +1776,9 @@ message; do not change the algorithm to accommodate them.
 - [ ] **Step 1: failing tests** (append)
 
 ```python
-from collateraldiscounting.montecarlo import Simulator, cv_mean_and_stderr
-from collateraldiscounting.schemes import ExactScheme
-from collateraldiscounting.calibration_check import analytic_report, mc_report
+from convexity.montecarlo import Simulator, cv_mean_and_stderr
+from convexity.schemes import ExactScheme
+from convexity.calibration_check import analytic_report, mc_report
 
 
 def test_simulate_dates_martingales(cal):
@@ -1788,7 +1788,7 @@ def test_simulate_dates_martingales(cal):
     for T in (2.0, 5.0):
         for ccy, col, kind in (("d", "d", "dd"), ("f", "d", "fd"), ("f", "f", "ff")):
             D = sim.deflator(st(T), cal.curves, ccy, col)
-            from collateraldiscounting.montecarlo import mean_and_stderr
+            from convexity.montecarlo import mean_and_stderr
             mu, se = mean_and_stderr(D)
             assert abs(mu - cal.curves.Z0(kind, T)) < 4 * se
 
@@ -2060,7 +2060,7 @@ def mc_report(cal, n_paths=2**16, seed=1, quotes=None, dt=0.25):
         rows.append(CheckRow(q.instrument.label, type(q.instrument).__name__, q.value, float(val), float(se)))
     return rows
 ```
-- [ ] **Step 5: run tests** — `python -m pytest collateraldiscounting/tests/test_calibration.py -q`. Expected PASS.
+- [ ] **Step 5: run tests** — `python -m pytest convexity/tests/test_calibration.py -q`. Expected PASS.
   If a Monte Carlo row fails, do not widen the tolerance: use superpowers:systematic-debugging
   (check the deflator, the measure, the fixing dates) and fix the cause.
 
@@ -2117,7 +2117,7 @@ def mc_report(cal, n_paths=2**16, seed=1, quotes=None, dt=0.25):
 
 **Files:**
 - Modify: `docs/CollateralDiscounting.tex` (section "The Linear Gaussian Collateral Model: Calibration", lines ~3171–3514; keep the subsection "Interpolation and consistency with the model dynamic" unchanged)
-- Modify: `python/collateraldiscounting/README.md`, `python/collateraldiscounting/__init__.py`, spec (MC valuation location)
+- Modify: `python/convexity/README.md`, `python/convexity/__init__.py`, spec (MC valuation location)
 
 - [ ] **Step 1: rewrite the section** with this content (LaTeX, using the notes' macros `\QZ`, `\f`, `\BS`, `\DCB`, `\RN`):
   - *Introduction*: keep the single-currency and cross-currency paragraphs; list the calibration targets
@@ -2167,9 +2167,9 @@ def mc_report(cal, n_paths=2**16, seed=1, quotes=None, dt=0.25):
 
 ### Task 9: Final verification
 
-- [ ] **Step 1:** full test suite: `cd python && python -m pytest collateraldiscounting -q` → all pass (57 + new). Record the time.
+- [ ] **Step 1:** full test suite: `cd python && python -m pytest convexity -q` → all pass (57 + new). Record the time.
 - [ ] **Step 2:** fresh environment: `conda env create -f environment.yml -n convexity-check` then
-  `conda run -n convexity-check python -m pytest collateraldiscounting -q` (from `python/`) and the
+  `conda run -n convexity-check python -m pytest convexity -q` (from `python/`) and the
   notebook export; remove the env afterwards (`conda env remove -n convexity-check`). If there is no
   network, say so in the report instead of claiming the environment was verified.
 - [ ] **Step 3:** LaTeX compile check as in Task 8 Step 2.

@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from collateraldiscounting.curves import (Index, DiscountCurveKey, ForwardCurveKey, PiecewiseFlatCurve,
+from convexity.curves import (Index, DiscountCurveKey, ForwardCurveKey, PiecewiseFlatCurve,
                                           SpreadCurve, FunctionCurve, LGCMSetup, CurveSet)
 
 SOFR = Index("USD_SOFR", "USD")
@@ -72,9 +72,9 @@ def test_curve_set_initial_curves_interface():
     np.testing.assert_allclose(cs.Z0("df", np.array([1.0, 2.0])), np.exp([-0.03, -0.06]))
 
 
-from collateraldiscounting.instruments import (schedule, Swap, FXForward, ResettingCCS, Swaption, FXOption,
+from convexity.instruments import (schedule, Swap, FXForward, ResettingCCS, Swaption, FXOption,
                                                CurrencyBasisSwaption, Quote, MarketQuotes)
-from collateraldiscounting.pricers import DeterministicPricer
+from convexity.pricers import DeterministicPricer
 
 
 def flat_curves(rd=0.04, rf=0.02, q=-0.001, x0=1.1):
@@ -145,7 +145,7 @@ def test_market_quotes_selectors():
     assert len(mq.without(FXOption).quotes) == 2
 
 
-from collateraldiscounting.curve_calibration import calibrate_curves, bootstrap, BootstrapReport, CalibrationError
+from convexity.curve_calibration import calibrate_curves, bootstrap, BootstrapReport, CalibrationError
 
 def linear_quotes(points=False, pip_factor=1e4):
     """Quotes generated from flat_curves(): the bootstrap must give back these curves."""

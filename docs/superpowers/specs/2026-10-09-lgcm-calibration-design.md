@@ -72,7 +72,7 @@ adjustments, no option targets).
   Linear instruments are priced by the instrument from curves and convexities; options dispatch to
   the pricer.
 
-### Modules in `python/collateraldiscounting/`
+### Modules in `python/convexity/`
 
 | module | responsibility |
 |---|---|

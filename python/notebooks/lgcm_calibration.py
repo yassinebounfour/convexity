@@ -20,13 +20,13 @@ def _():
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from collateraldiscounting.calibration import BlockSpec, CalibrationError, ModelSpec, calibrate, default_spec
-    from collateraldiscounting.calibration_check import analytic_report, mc_report
-    from collateraldiscounting.curve_calibration import calibrate_curves
-    from collateraldiscounting.instruments import (CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap,
+    from convexity.calibration import BlockSpec, CalibrationError, ModelSpec, calibrate, default_spec
+    from convexity.calibration_check import analytic_report, mc_report
+    from convexity.curve_calibration import calibrate_curves
+    from convexity.instruments import (CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap,
                                                    Swaption)
-    from collateraldiscounting.market import fx_collateral_convexity, libor_convexity
-    from collateraldiscounting.market_data import example_quotes
+    from convexity.market import fx_collateral_convexity, libor_convexity
+    from convexity.market_data import example_quotes
 
     # colour-blind-safe palette (Okabe-Ito), one colour per object across all panels
     C = {"lgcm": "#0072B2", "dcb": "#D55E00", "d": "#009E73", "f": "#CC79A7", "c": "#E69F00", "x": "#7F7F7F",
