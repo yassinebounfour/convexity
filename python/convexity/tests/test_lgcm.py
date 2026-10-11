@@ -1,6 +1,6 @@
 """Checks of the LGCM / QGCM derivations in docs/CollateralDiscounting.tex.
 
-Run from python/ with ``python -m pytest collateraldiscounting -q``.
+Run from python/ with ``python -m pytest convexity -q``.
 
 Each test corresponds to a verification remark of the notes. The benchmarks are exact
 (no-arbitrage identities, moment ODEs, quadrature), so tolerances are near machine precision,
@@ -13,8 +13,8 @@ import pytest
 import sympy as sp
 from scipy.integrate import quad
 
-from collateraldiscounting.lgcm import default_model, E, Phi1, Phi2
-from collateraldiscounting import moments, transitions, gaussian_approx
+from convexity.lgcm import default_model, E, Phi1, Phi2
+from convexity import moments, transitions, gaussian_approx
 
 
 @pytest.fixture(scope="module")

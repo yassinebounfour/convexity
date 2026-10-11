@@ -2,7 +2,7 @@
 
 Run as a script for the full report (about two minutes):
 
-    cd python && python -m collateraldiscounting.mc_verification
+    cd python && python -m convexity.mc_verification
 
 The pytest suite runs smaller versions of the same checks.
 

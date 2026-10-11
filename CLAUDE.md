@@ -13,8 +13,8 @@ and wrong integration bounds that only surfaced that way.
 
 - `docs/CollateralDiscounting.tex`: the notes (`amsart`, ~5.5k lines). It is a working notebook, with
   `TODO`/`FIXME`/`??` markers in places. Verification remarks quote measured numbers.
-- `python/collateraldiscounting/`: the numerical companion (see its `README.md`). Run the tests with
-  `cd python && python -m pytest collateraldiscounting -q`.
+- `python/convexity/`: the numerical companion (see its `README.md`). Run the tests with
+  `cd python && python -m pytest convexity -q`.
 
 ## Conventions
 

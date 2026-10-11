@@ -12,7 +12,7 @@ vol is deterministic.
 """
 import numpy as np
 
-from .schemes import EulerScheme, ExactScheme, MCScheme, SimResult   # noqa: F401  (re-exported)
+from .schemes import EulerScheme, ExactScheme, MCScheme, PathStates, SimResult   # noqa: F401  (re-exported)
 
 
 class Simulator:
@@ -33,6 +33,12 @@ class Simulator:
         if antithetic and n_paths % 2:
             raise ValueError("n_paths must be even with antithetic sampling")
         return self.scheme.simulate(self, T, n_paths, np.random.default_rng(seed), antithetic)
+
+    def simulate_dates(self, dates, n_paths, seed=0, antithetic=True):
+        """State at every date of `dates` along the same paths (PathStates, looked up by date)."""
+        if antithetic and n_paths % 2:
+            raise ValueError("n_paths must be even with antithetic sampling")
+        return self.scheme.simulate_dates(self, dates, n_paths, np.random.default_rng(seed), antithetic)
 
     # ------------------------------------------------------------------ reconstruction
     def lnZ(self, res, kind, T):
@@ -86,3 +92,18 @@ def ratio_and_stderr(num, den, antithetic=True, n_batches=50):
     nb = np.array_split(np.arange(len(num)), n_batches)
     r = np.array([num[b].sum() / den[b].sum() for b in nb])
     return num.sum() / den.sum(), r.std(ddof=1) / np.sqrt(n_batches)
+
+
+def cv_mean_and_stderr(x, controls, means, antithetic=True):
+    """E[x] with regression control variates c_k of exactly known means E[c_k] = means[k]:
+    y = x - (c - E c) beta, beta the least squares slope (antithetic pairs averaged first). The O(1/N)
+    bias of the estimated beta is negligible against the standard error."""
+    x = np.asarray(x, float)
+    pair = (lambda a: 0.5 * (a[0::2] + a[1::2])) if antithetic else (lambda a: a)
+    C = np.stack([pair(np.broadcast_to(np.asarray(c, float), x.shape)) for c in controls], axis=1)
+    C = C - np.asarray(means, float)
+    x = pair(x)
+    Cc = C - C.mean(0)
+    beta = np.linalg.lstsq(Cc, x - x.mean(), rcond=None)[0]
+    y = x - C @ beta
+    return float(y.mean()), float(y.std(ddof=1) / np.sqrt(len(y)))

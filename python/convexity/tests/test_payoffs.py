@@ -1,16 +1,16 @@
 """Monte Carlo pricing of the payoff hierarchy against closed forms.
 
 Statistical tests use a 4-standard-error tolerance with fixed seeds.
-Run from python/ with ``python -m pytest collateraldiscounting -q``.
+Run from python/ with ``python -m pytest convexity -q``.
 """
 import numpy as np
 import pytest
 
-from collateraldiscounting.lgcm import default_model
-from collateraldiscounting.montecarlo import Simulator
-from collateraldiscounting.schemes import EulerScheme, ExactScheme
-from collateraldiscounting.market import InitialCurves, fx_collateral_convexity
-from collateraldiscounting.payoffs import (DiscountFactor, ForwardDiscountFactor, Swap, Swaption,
+from convexity.lgcm import default_model
+from convexity.montecarlo import Simulator
+from convexity.schemes import EulerScheme, ExactScheme
+from convexity.market import InitialCurves, fx_collateral_convexity
+from convexity.payoffs import (DiscountFactor, ForwardDiscountFactor, Swap, Swaption,
                                            FXForward, FXOption, price)
 
 Z = 4.0
