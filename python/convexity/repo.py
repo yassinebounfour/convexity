@@ -141,3 +141,64 @@ def repo_rate(rm, curves, s, e, T, day_count="ACT/360"):
 def repo_discount_factor(rm, curves, e, T):
     """hat p^{eT}_0 = pbar_{0,e} exp(-M^{eT}_0) (McCloud (20) with L = 0)."""
     return float(curves.Zbond(e) * math.exp(-maturity_adjustment(rm, 0.0, e, T)))
+
+
+# ---------------------------------------------------------------------- McCloud's Hull-White closed forms
+def _ex(x):
+    """1 - e^{-x}."""
+    return -math.expm1(-x)
+
+
+def _check_mr(theta, kappa):
+    if theta * kappa * (theta + kappa) == 0:
+        raise ValueError("McCloud's closed forms need theta, kappa, theta + kappa != 0: use repo_convexity "
+                         "(stable at zero mean reversion)")
+
+
+def hw_B(tau, delta, mu, theta, kappa):
+    """McCloud (33): C^{eT}_{ts} = rho sigma eps B[s-t, e-s, T-e; theta, kappa]."""
+    _check_mr(theta, kappa)
+    th, ka = theta, kappa
+    a = _ex(th * mu) * (_ex(th * (tau + delta)) / th - _ex((th + ka) * (tau + delta)) / (th + ka))
+    b = _ex(th * (delta + mu)) * (_ex(th * tau) / th - math.exp(-ka * delta) * _ex((th + ka) * tau) / (th + ka))
+    return (a - b) / (th * ka)
+
+
+def hw_convexity(rho, sigma, eps, theta, kappa, t, s, e, T):
+    _check_dates(t, s, e, T)
+    return rho * sigma * eps * hw_B(s - t, e - s, T - e, theta, kappa)
+
+
+def hw_M(rho, sigma, eps, theta, kappa, t, e, T):
+    """McCloud (34), maturity adjustment."""
+    _check_mr(theta, kappa)
+    th, ka = theta, kappa
+    return rho * sigma * eps / (th * ka) * _ex(th * (T - e)) * (_ex(th * (e - t)) / th - _ex((th + ka) * (e - t)) / (th + ka))
+
+
+def hw_F(rho, sigma, eps, theta, kappa, t, s, e, T):
+    """McCloud (34), forwardness adjustment."""
+    _check_mr(theta, kappa)
+    th, ka = theta, kappa
+    return -rho * sigma * eps / (th * ka * (th + ka)) * _ex(th * (T - s)) * _ex(ka * (e - s)) * _ex((th + ka) * (s - t))
+
+
+def hw_forward_spread(rho, sigma, eps, theta, kappa, t, e):
+    """McCloud (38): hat f^e_t - bar f^e_t for the infinite-maturity repo curve."""
+    _check_mr(theta, kappa)
+    return rho * sigma * eps / (theta * kappa) * math.exp(-theta * (e - t)) * _ex(kappa * (e - t))
+
+
+def hw_extrapolate(spread_E, t, E, e, theta, kappa):
+    """McCloud (39): hat f^e - bar f^e from the spread observed at E (e >= E)."""
+    return spread_E * math.exp(-theta * (e - E)) * _ex(kappa * (e - t)) / _ex(kappa * (E - t))
+
+
+def hw_maturity_weight(theta, mu):
+    """McCloud (41): hat p^{eT} = (bar p^e)^w (hat p^{e,inf})^{1-w}, w = exp(-theta (T - e))."""
+    return math.exp(-theta * mu)
+
+
+def hw_forwardness_weight(theta, kappa, tau):
+    """McCloud (43): weight exp(-(theta + kappa)(s - t)) of the spot-starting gross rate."""
+    return math.exp(-(theta + kappa) * tau)

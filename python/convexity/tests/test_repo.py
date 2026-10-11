@@ -104,3 +104,83 @@ def test_model_inputs_are_validated():
         repo.RepoModel([0, 10], [([0.01], [0.1])], [([0.01], [0.1])], [[1.0, 1.2], [1.2, 1.0]])
     with pytest.raises(ValueError, match="at least one"):
         repo.RepoModel([0, 10], [], [([0.01], [0.1])], np.eye(1))
+
+
+# --------------------------------------------------------------------------- McCloud's Hull-White closed forms
+P = (HW["rho"], HW["sigma"], HW["eps"], HW["theta"], HW["kappa"])
+
+
+@pytest.mark.parametrize("t,s,e,T", DATES)
+def test_hull_white_matches_mccloud(hw, t, s, e, T):
+    """Proposition "Hull-White repo convexity": the LGCM formula is McCloud's (30), (33), (34)."""
+    assert repo.repo_convexity(hw, t, s, e, T) == pytest.approx(repo.hw_convexity(*P, t, s, e, T), rel=1e-11, abs=1e-18)
+    assert repo.maturity_adjustment(hw, t, e, T) == pytest.approx(repo.hw_M(*P, t, e, T), rel=1e-11, abs=1e-18)
+    if s > t:
+        assert repo.forwardness_adjustment(hw, t, s, e, T) == pytest.approx(repo.hw_F(*P, t, s, e, T), rel=1e-11)
+
+
+def test_hull_white_beyond_horizon(hw):
+    """Model.piece clamps to the last piece: constant parameters extend past the horizon (200)."""
+    assert repo.repo_convexity(hw, 0.0, 2.0, 3.0, 300.0) == pytest.approx(repo.hw_convexity(*P, 0.0, 2.0, 3.0, 300.0), rel=1e-11)
+
+
+@pytest.mark.parametrize("theta,kappa", [(1e-3, 1e-3), (1e-3, 0.5), (0.3, 1e-3), (-0.02, 0.4)])
+def test_hull_white_small_and_negative_mean_reversion(theta, kappa):
+    rm = repo.RepoModel.hull_white(theta, 0.01, kappa, 0.008, -0.5)
+    for t, s, e, T in DATES[1:]:
+        assert repo.repo_convexity(rm, t, s, e, T) == pytest.approx(
+            repo.hw_convexity(-0.5, 0.01, 0.008, theta, kappa, t, s, e, T), rel=1e-7)
+
+
+def test_zero_mean_reversion_limit():
+    """theta = kappa = 0: ln K = -rho sigma eps [(e-s)((e-t)^2 - (e-s)^2)/2 - (T-e)(e-s)^2/2]."""
+    rho, sig, eps = -0.5, 0.01, 0.008
+    rm = repo.RepoModel.hull_white(0.0, sig, 0.0, eps, rho)
+    for t, s, e, T in DATES:
+        poly = -rho * sig * eps * ((e - s) * ((e - t) ** 2 - (e - s) ** 2) / 2 - (T - e) * (e - s) ** 2 / 2)
+        assert repo.repo_convexity(rm, t, s, e, T) == pytest.approx(poly, rel=1e-12, abs=1e-18)
+    with pytest.raises(ValueError, match="repo_convexity"):
+        repo.hw_B(1.0, 1.0, 1.0, 0.0, 0.4)
+
+
+def test_hull_white_maturity_interpolation(hw):
+    """McCloud (41): hat p^{eT} = (pbar^e)^w (hat p^{e,inf})^{1-w}, w = exp(-theta (T-e)): exact in Hull-White."""
+    for e, mu in [(1.0, 2.0), (2.0, 10.0), (5.0, 25.0)]:
+        w = repo.hw_maturity_weight(HW["theta"], mu)
+        p_inf = repo.repo_discount_factor(hw, CURVES, e, e + 1e3)
+        p_eT = repo.repo_discount_factor(hw, CURVES, e, e + mu)
+        assert p_eT == pytest.approx(float(CURVES.Zbond(e)) ** w * p_inf ** (1 - w), rel=1e-13)
+
+
+def test_hull_white_forwardness_interpolation(hw):
+    """McCloud (43): F(tau) = (1 - exp(-(theta+kappa) tau)) F(inf) at fixed e-s, T-e: exact in Hull-White."""
+    d, mu = 1.0, 5.0
+    F_inf = repo.forwardness_adjustment(hw, 0.0, 150.0, 150.0 + d, 150.0 + d + mu)
+    for tau in [0.5, 1.0, 3.0, 6.0]:
+        w = repo.hw_forwardness_weight(HW["theta"], HW["kappa"], tau)
+        assert repo.forwardness_adjustment(hw, 0.0, tau, tau + d, tau + d + mu) == pytest.approx((1 - w) * F_inf, rel=1e-12)
+
+
+def test_hull_white_forward_spread_and_extrapolation(hw):
+    """McCloud (38): hat f^e - bar f^e = d/de M^{e,inf}_0; (39) extrapolates it from E."""
+    h = 1e-5
+    for e in [0.5, 2.0, 7.0]:
+        dM = (repo.maturity_adjustment(hw, 0.0, e + h, 1e3) - repo.maturity_adjustment(hw, 0.0, e - h, 1e3)) / (2 * h)
+        assert dM == pytest.approx(repo.hw_forward_spread(*P, 0.0, e), rel=1e-7)
+    E = 2.0
+    sE = repo.hw_forward_spread(*P, 0.0, E)
+    for e in [2.0, 5.0, 20.0]:
+        assert repo.hw_extrapolate(sE, 0.0, E, e, HW["theta"], HW["kappa"]) == pytest.approx(
+            repo.hw_forward_spread(*P, 0.0, e), rel=1e-13)
+
+
+def test_interpolation_fails_beyond_hull_white(pw):
+    """Remark "Beyond Hull-White": no single geometric weight in the two-factor piecewise model.
+    Measured: implied theta 0.0232 (mu = 2) vs 0.0296 (mu = 20); F(tau)/F(30) = 0.18, 0.31, 1.02, 1.53, 1.38
+    at tau = 0.5, 1, 3, 6, 10 (not monotone, above 1)."""
+    e, Minf = 2.0, repo.maturity_adjustment(pw, 0.0, 2.0, 60.0)
+    th = [-math.log(1 - repo.maturity_adjustment(pw, 0.0, e, e + mu) / Minf) / mu for mu in (2.0, 20.0)]
+    assert th[1] / th[0] - 1 > 0.2
+    Finf = repo.forwardness_adjustment(pw, 0.0, 30.0, 31.0, 36.0)
+    ratios = [repo.forwardness_adjustment(pw, 0.0, tau, tau + 1, tau + 6) / Finf for tau in (0.5, 1, 3, 6, 10)]
+    assert max(ratios) > 1.2 and np.any(np.diff(ratios) < 0)
