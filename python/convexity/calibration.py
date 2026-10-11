@@ -10,7 +10,8 @@ Algorithm "LGCM calibration":
 1. native curves Z^{d|d}, Z^{f|f} from swaps (model-free bootstrap);
 2. lambda^d, lambda^f from ATM swaption normal vols, expiry by expiry: Gaussian approximation guess
    (the segment variance is v0 + lambda^2 v1), then the exact one-factor price;
-3. fixed point: Z^{f|d} from FX forwards and resetting CCS with the LGCM Libor convexities, then
+3. fixed point: Z^{f|d} from FX forwards and resetting CCS with the LGCM collateral convexities of
+   the foreign coupon (Libor or compounded), then
    lambda^c from CB spread vols (Gaussian guess, exact 2D quadrature), until lambda^c and Z^{f|d}
    no longer move;
 4. sigma^x from ATM FX vols: the total variance is quadratic in sigma^x on the segment (exact).
@@ -106,7 +107,7 @@ class Calibration:
 def _set_level(model, spec, block, t0, t1, lam):
     """lambda^block = lam on the pieces of [t0, t1) (t1 = inf: flat extrapolation after the last expiry).
     Pieces after t1 are left alone: a CB vol at T0 also reads sigma^c on [T0, T0 + tenor) through the
-    Libor convexities, so overwriting the tail would move the targets already calibrated."""
+    coupon convexities, so overwriting the tail would move the targets already calibrated."""
     k0 = int(np.searchsorted(model.knots, t0 - 1e-12))
     k1 = int(np.searchsorted(model.knots, t1 - 1e-12)) if np.isfinite(t1) else len(model.knots) - 1
     if block == "x":

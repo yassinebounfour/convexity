@@ -1,7 +1,7 @@
 """Pricers: the model view of the calibration instruments.
 
 Pricer               curves, forward rates and the interface for option quotes
-DeterministicPricer  deterministic collateral basis (DCB) model: Libor collateral convexity K = 1,
+DeterministicPricer  deterministic collateral basis (DCB) model: collateral convexity K = 1,
                      no volatility (option quotes raise NotImplementedError)
 LGCMPricer           LGCM closed forms: exact one-factor swaptions, Gaussian multi-factor variance, CB and FX vols
 """

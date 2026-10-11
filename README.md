@@ -13,7 +13,7 @@ derivations numerically.
 
 ```bash
 cd docs && pdflatex -interaction=nonstopmode CollateralDiscounting.tex   # twice, for refs
-cd python && python -m pytest convexity -q                   # ~75 s
+cd python && python -m pytest convexity -q                   # ~95 s
 cd python && python -m convexity.mc_verification             # Monte Carlo report, ~2.5 min
 ```
 

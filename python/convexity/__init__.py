@@ -14,7 +14,7 @@ payoffs          Payoff hierarchy (discount factors, swaps, swaptions, FX forwar
 mc_verification  Monte Carlo verification report of the approximations
 curves           indices, curve keys, piecewise flat / spread curves, LGCMSetup, CurveSet
 instruments      calibration instruments (swaps, FX forwards, resetting CCS, swaptions, FX options, CB swaptions), quotes
-pricers          DeterministicPricer (DCB) and LGCMPricer (Libor convexities, exact and Gaussian option vols)
+pricers          DeterministicPricer (DCB) and LGCMPricer (collateral convexity of the foreign coupon, Libor or compounded; exact and Gaussian option vols)
 curve_calibration  sequential curve bootstrap with a convexity provider; calibrate_curves (DCB)
 calibration      ModelSpec and calibrate: the LGCM calibration algorithm
 market_data      illustrative EURUSD, GBPUSD, USDJPY (inverted) example markets (not live data)

@@ -8,7 +8,8 @@ curve is not used, and is reported as a check. Native discount curves have flat 
 off native collateral is Z^{e|e} times a flat-forward collateral basis curve (Remark "Which curve to
 interpolate" in the notes).
 
-The model only enters through the pricer (Libor collateral convexities of the resetting CCS):
+The model only enters through the pricer (collateral convexities of the foreign coupon of the
+resetting CCS, Libor or compounded):
 DeterministicPricer is the DCB market practice, LGCMPricer the LGCM.
 """
 from dataclasses import dataclass, field

@@ -55,9 +55,9 @@ def _(mo):
 
     1. $Z^{d|d}$, $Z^{f|f}$ from the swaps (model-free bootstrap).
     2. $\lambda^d$, $\lambda^f$ (piecewise constant) from the ATM swaption normal vols, expiry by expiry.
-    3. A **fixed point**: $Z^{f|d}$ from the FX forwards and resetting CCS (using the LGCM Libor
-       convexities, which depend on $\sigma^c$), then $\lambda^c$ from the currency-basis spread vols, repeated
-       until neither moves.
+    3. A **fixed point**: $Z^{f|d}$ from the FX forwards and resetting CCS (using the LGCM collateral
+       convexity of the foreign coupon, Libor or compounded, which depends on $\sigma^c$), then $\lambda^c$
+       from the currency-basis spread vols, repeated until neither moves.
     4. $\sigma^x$ from the ATM FX vols (the total variance is quadratic in $\sigma^x$ on each segment).
     5. Model output, not an input: the off-market curve $Z^{d|f}$ (USD cash flows collateralised in the foreign currency).
 
@@ -469,8 +469,8 @@ def _(C, beta_c, beta_f, cal, cbscale, libor_calibrated, market, mo, np, plt, rh
     same tenor and zero spread; this is the mis-specification the compounded-coupon pricers fix).
     The $Z^{{f|d}}$ zero-rate shift (Libor-coupon calibration minus compounded-coupon calibration) is **{_sh[-1]:.4f} bp at 30Y** (largest absolute shift {np.max(np.abs(_sh)):.4f} bp).
     That is a measurement, not a bound: the coupon type barely matters for the collateral convexity in these
-    markets, because $K-1$ itself is small (see above) and the two coupons differ by only a relative amount of the order of
-    $10^{{-7}}$ (see the coupon comparison above), far below any market tick. The point of the panel is this robustness, not a correction.
+    markets, because $K-1$ itself is small (see above) and the two coupons differ by only a relative amount of
+    $10^{{-8}}$ to $10^{{-7}}$ (about $2\\cdot10^{{-8}}$ in $\\ln K$ on the calibrated GBPUSD model, $10^{{-7}}$ on the test model of the notes; see the coupon comparison above), far below any market tick. The point of the panel is this robustness, not a correction.
     """), _fig])
     return
 

@@ -256,7 +256,7 @@ def test_two_factor_domestic_block():
 
 
 def test_cb_vols_not_moved_by_later_expiries(cal):
-    """A CB vol at T0 reads sigma^c on [T0, T0 + tenor) through the Libor convexities K_{T0,j}, i.e. the
+    """A CB vol at T0 reads sigma^c on [T0, T0 + tenor) through the coupon convexities K_{T0,j}, i.e. the
     pieces of the next expiries. Each expiry sets only its own segment and the fixed point resolves the
     coupling: every CB vol is repriced to rounding (overwriting the tail left errors of 4e-11)."""
     pr = cal.pricer()

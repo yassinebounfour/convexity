@@ -7,7 +7,7 @@ Environment (from the repository root): `conda env create -f environment.yml` (P
 `pip install -r requirements.txt` in an existing environment. Run the tests from `python/`:
 
 ```
-python -m pytest convexity -q                  # full suite (~1 min)
+python -m pytest convexity -q                  # full suite (~95 s)
 python -m pytest convexity -q -m "not slow"    # without the Monte Carlo repricing tests
 ```
 
@@ -28,7 +28,7 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `tests/test_payoffs.py` | Monte Carlo prices of all payoffs against LGCM closed forms, model-free prices in the QGCM, put-call parities |
 | `curves.py` | `Index` (OIS with daily or continuous compounding, or IBOR with funding spread, kappa = 1 + theta s; `.coupon`), curve keys `DiscountCurveKey(currency, collateral)` / `ForwardCurveKey`, `PiecewiseFlatCurve`, `SpreadCurve` (Z^{f\|d} = Z^{f\|f} x collateral basis curve), `FunctionCurve`, `LGCMSetup` (roles d, f and collateral indices), `CurveSet` (duck-type compatible with `InitialCurves`) |
 | `instruments.py` | calibration instruments (pure data): `Swap`, `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`; `Quote`, `MarketQuotes` |
-| `pricers.py` | `DeterministicPricer` (DCB: K = 1, no options), `LGCMPricer` (Libor convexities, exact one factor swaption, Gaussian swaption variance with separate fixed/float schedules, FX vol, CB vol exact and Gaussian) |
+| `pricers.py` | `DeterministicPricer` (DCB: K = 1, no options), `LGCMPricer` (collateral convexity of the foreign coupon, Libor or compounded; exact one factor swaption, Gaussian swaption variance with separate fixed/float schedules, FX vol, CB vol exact and Gaussian) |
 | `curve_calibration.py` | generic sequential curve bootstrap with a convexity provider; `calibrate_curves(quotes)` is the DCB market practice |
 | `calibration.py` | `ModelSpec`, `BlockSpec`, `default_spec`, `calibrate(quotes, spec) -> Calibration`: Algorithm "LGCM calibration" of the notes |
 | `market_data.py` | `example_setup()`, `example_quotes(market)` for `MARKETS` = EURUSD (USD SOFR / EUR ESTR, EURIBOR 3M), GBPUSD, USDJPY (inverted quotation): illustrative, not live data |
@@ -70,7 +70,7 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | Compounded overnight (RFR) coupon convexity | `test_closed_form_matches_exact_gaussian_benchmark`, `test_partially_accrued_period`, `test_benchmark_native_coupon_is_model_free`, `test_benchmark_convexity_does_not_depend_on_the_state_at_t`, `test_vectorised_daily_convexity_matches_scalar_oracle` | `benchmarks.coupon_value_exact` (state augmentation of the exact transitions, independent code): measured max abs(Delta ln K) 4.4e-16 |
 | Coupon types: Libor is the one step daily coupon, continuous is the step -> 0 limit | `test_libor_is_the_one_step_daily_coupon`, `test_coupon_grid_lands_on_b`, `test_continuous_is_the_limit_of_daily_with_order_one`, `test_compounded_and_libor_convexities_differ_by_the_accrual_term` | continuous vs daily error ratio about 2 per halving of the step: O(step), measured, not proved |
 | Coupon-aware curves, pricers, swap and CB inputs | `test_index_coupon`, `test_curve_set_and_initial_curves_coupon`, `test_rfr_ccs_uses_the_compounded_convexity_not_libor`, `test_gaussian_approx_and_exact_forward_consistency`, `test_ingredients_use_the_curves_coupon`, `test_swap_convexities_pick_up_the_curves_coupon`, `test_cb_straddle_inputs_use_the_curves_coupon`, `test_initial_curves_paths_keep_libor` | the coupon of `curves.coupon("f")` reaches K0/KT, swap convexities and CB straddle inputs |
-| Example markets, inverted FX | `test_calibration_reprices_every_market`, `test_rfr_markets_use_compounded_coupons`, `test_default_market_is_eurusd_and_not_inverted`, `test_inverted_forward_quote_is_reciprocal`, `test_inverted_fx_quotes_give_the_same_curve`, `test_fx_option_vol_is_invariant_under_inversion`, `test_mc_inverted_forward_se_is_propagated` | all three markets reprice (closed form); USDJPY inverted quotes give the same curve as the direct pair |
+| Example markets, inverted FX | `test_calibration_reprices_every_market`, `test_rfr_markets_use_compounded_coupons`, `test_default_market_is_eurusd_and_not_inverted`, `test_inverted_forward_quote_is_reciprocal`, `test_inverted_fx_quotes_give_the_same_curve`, `test_fx_spot_and_forward_conventions_must_agree`, `test_fx_option_vol_is_invariant_under_inversion`, `test_mc_inverted_forward_se_is_propagated` | all three markets reprice (closed form); USDJPY inverted quotes give the same curve as the direct pair; a spot and forwards quoted in different conventions raise `ValueError` |
 | Compounded coupons on Monte Carlo paths (`slow` where marked) | `test_simulate_dates_streams_dates_in_order_without_storing`, `test_coupon_paths_match_a_hand_computation_on_stored_states`, `test_coupon_paths_value_the_continuous_coupon_on_its_daily_grid`, `test_with_compounding_step_changes_only_the_foreign_coupon_step`, `test_mc_daily_coupon_convexity_one_period`, `test_coupon_path_control_means`, `test_mc_reprices_rfr_ccs_and_cb_vols`, `test_mc_rfr_negative_controls` | 4 s.e. with fixed seeds; 2^17 paths, seed 7, weekly step on paths: max abs(z) 2.22 (EURUSD), 3.10 (GBPUSD), 2.70 (USDJPY) |
 
 The test model (`default_model`) has two domestic factors, one foreign factor, one collateral
@@ -81,8 +81,8 @@ negative mean reversions on some intervals, and it uses a full 5×5 correlation 
 
 `calibration.calibrate` implements Algorithm "LGCM calibration" of the notes: native curves from swaps;
 lambda^d, lambda^f from ATM swaptions (exact one factor price); a fixed point between the Z^{f|d} curve
-(FX forwards and resetting CCS with the LGCM Libor convexities) and lambda^c (CB vols, exact 2D
-quadrature); sigma^x from ATM FX vols in closed form. Mean reversions, correlations and factor weights
+(FX forwards and resetting CCS with the LGCM collateral convexity of the foreign coupon, Libor or compounded)
+and lambda^c (CB vols, exact 2D quadrature); sigma^x from ATM FX vols in closed form. Mean reversions, correlations and factor weights
 are marked (`ModelSpec`). The calibration takes one swaption quote per expiry and currency (one tenor, not a
 swaption matrix) and one CB vol and one FX vol per expiry; two quotes with the same expiry raise a
 `ValueError` naming both. A block without option quotes keeps its marked level, listed in
@@ -121,9 +121,9 @@ A foreign index coupon is a `market.Coupon(kind, step)`, with `kind`
 - `"daily"`: exact daily compounding, prod 1/Z^{f|f}_{t_k,t_{k+1}} on `coupon_grid(a, b, step)` (default step 1/365); Libor is its one step case;
 - `"continuous"`: exp(int_a^b r^{f|f}), the step -> 0 limit. It is an approximation of the daily coupon with error O(step) (measured ratio about 2 per halving of the step, not proved).
 
-`Index(..., compounding, on_step)` sets the coupon of an OIS index; `Index.coupon`, `CurveSet.coupon(role)` and `Pricer.coupon_convexity(a, b)` expose it, and the swap, CCS and CB-vol machinery uses that coupon. The closed form is `Coupon.convexity(m, t, a, b)` (`market.compounded_convexity` for the compounded kinds); `benchmarks.coupon_value_exact` is the independent check. Libor and daily K differ by about 1e-7 relative per period, so the calibrated Z^{f|d} moves by only about -0.001 bp when switching coupon type: the in-arrears term is negligible in these markets. K - 1 reaches about 1.8e-4 (GBPUSD, USDJPY) and 2.2e-4 (EURUSD) at 30Y.
+`Index(..., compounding, on_step)` sets the coupon of an OIS index; `Index.coupon`, `CurveSet.coupon(role)` and `Pricer.coupon_convexity(a, b)` expose it, and the swap, CCS and CB-vol machinery uses that coupon. The closed form is `Coupon.convexity(m, t, a, b)` (`market.compounded_convexity` for the compounded kinds); `benchmarks.coupon_value_exact` is the independent check. Libor and daily K differ by 1e-8 to 1e-7 relative per period (ln(K^daily / K^Libor) = 1.9e-8 to 2.6e-8 on the calibrated GBPUSD model, about 1e-7 on the test model `default_model`), so the calibrated Z^{f|d} moves by only about -0.001 bp when switching coupon type: the in-arrears term is negligible in these markets. K - 1 reaches about 1.8e-4 (GBPUSD, USDJPY) and 2.2e-4 (EURUSD) at 30Y.
 
-Monte Carlo cannot resolve Libor against compounded K: the difference (~1e-7 relative) is far below the standard error of the runs here. The MC rows therefore test the compounded coupon valuation on paths (exact controls) and reject K = 1 (negative controls), not the Libor / compounded distinction, which rests on the exact benchmark. `mc_report(cal, ..., compounding_step=1/52)` compounds on a weekly grid on the paths, and `with_compounding_step(cal, 1/52)` makes the model side use the same step.
+Monte Carlo cannot resolve Libor against compounded K: the difference (1e-8 to 1e-7 relative) is far below the standard error of the runs here. The MC rows therefore test the compounded coupon valuation on paths (exact controls) and reject K = 1 (negative controls), not the Libor / compounded distinction, which rests on the exact benchmark. `mc_report(cal, ..., compounding_step=1/52)` compounds on a weekly grid on the paths and applies `with_compounding_step(cal, 1/52)` itself, so the model side uses the same step.
 
 `example_quotes(market)` for `market` in `MARKETS` = EURUSD (Libor-type foreign coupon), GBPUSD and USDJPY (daily compounded RFR). USDJPY is quoted inverted (`FXForward(..., inverted=True)`, `MarketQuotes.fx_inverted`): quotes are units of foreign per domestic, `MarketQuotes.x0` is the model spot (domestic per foreign). Run from `python/`:
 
@@ -133,7 +133,7 @@ from convexity.benchmarks import coupon_value_exact
 from convexity.lgcm import default_model
 from convexity.market_data import example_quotes, MARKETS
 from convexity.calibration import calibrate
-from convexity.calibration_check import mc_report, with_compounding_step
+from convexity.calibration_check import mc_report
 
 m, curves = default_model(), InitialCurves()
 for c in (Coupon("libor"), Coupon("daily"), Coupon("continuous")):
@@ -146,7 +146,8 @@ for mk in MARKETS:
     print(mk, q.fx_inverted, q.x0, cal.curves.coupon("f").kind)
 
 cal = calibrate(example_quotes("USDJPY"))
-rows = mc_report(with_compounding_step(cal, 1/52), n_paths=2**17, seed=7, compounding_step=1/52)
+rows = mc_report(cal, n_paths=2**17, seed=7, compounding_step=1/52)   # weekly step on the paths and in the model
+print(f"USDJPY MC max |z| {max(abs(r.z) for r in rows):.2f}")   # all 65 quotes, weekly step
 ```
 
 Output (the `K - 1` lines are for `default_model`):
@@ -159,6 +160,7 @@ continuous 0.0001797479505707411
 EURUSD False 1.1 libor
 GBPUSD False 1.27 daily
 USDJPY True 0.006666666666666667 daily
+USDJPY MC max |z| 2.70
 ```
 
 ## Monte Carlo verification
