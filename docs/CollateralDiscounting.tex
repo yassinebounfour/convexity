@@ -272,7 +272,7 @@ In these notes, we will use the following notations:
 \end{itemize}
 
 
-\subsection{Risk-neutral pricing of collateralized trades}
+\subsection{Risk-neutral pricing of collateralized trades}\label{ssec:rn_pricing}
 
 We summarise the main results about the valuation of derivatives under perfect collateral in a perfect Brownian market (see Piterbarg \cite{Piterbarg:Cooking} and McCloud \cite{McCloud:CollateralVolatility}).
 
@@ -1841,7 +1841,7 @@ Let $(X,Y)$ be a Gaussian vector then
 \end{lemm}
  
 %The following proposition is a generalisation of FX-forward invariance under stochastic collateral rates. 
-\begin{prop}[Collateral convexity]
+\begin{prop}[Collateral convexity]\label{prop:collateral_convexity}
 Let $v^{e|i}_t$ be a lognormal process under $\QQ^{e|i,T}$ 
 \begin{eqnarray}
   \frac{dv^{e|i}_{t}}{v^{e|i}_{t}} &=& \sigma^{v}_{t,T} \cdot dW^{e|i,T}_t 
@@ -3846,6 +3846,206 @@ There is no market for cross-currency swaps collateralized in JPY. So we have to
 
 
 \newpage%
+\section{Bonds, repo and repo convexity}\label{sec:repo}%
+
+McCloud \cite{McCloud:RepoConvexity} explains the observed basis between repo discount factors, implied from repo rates, and bond discount factors, stripped from bond prices, as a convexity effect: the repo is valued with the derivative discount rate, while the bond delivered in the repo is priced with the bond discount rate. We show that this \emph{repo convexity} is a forward collateral convexity adjustment in the sense of \autoref{prop:collateral_convexity}, with the bond curve playing the role of the native curve and the derivative curve that of the collateral. The LGCM gives it in closed form for any number of factors, and McCloud's Hull--White formulas are the one factor case.
+
+\subsection{Setting}
+
+\begin{hypo}
+Single currency, no default, no haircut. Under one risk-neutral measure, the \emph{bond curve} and the \emph{derivative curve} are
+\begin{eqnarray}
+	\bar p^T_t \;=\; \EE_t\left[ e^{-\int_t^T \bar r_u du} \right], \qquad
+	p^T_t \;=\; \EE_t\left[ e^{-\int_t^T r_u du} \right], \qquad r_t \;=\; \bar r_t + b_t ,
+\end{eqnarray}
+where $\bar r$ is the bond discount rate, $r$ the derivative (OIS) discount rate and $b$ the \emph{discounting basis} (McCloud (11)). The volatilities are $d\bar p^T_t/\bar p^T_t = \bar r_t dt - \bar\Sigma_{t,T}\cdot dW_t$, $dp^T_t/p^T_t = r_t dt - \Sigma^{p}_{t,T}\cdot dW_t$, and $\Sigma^b_{t,T} := \Sigma^{p}_{t,T} - \bar\Sigma_{t,T}$. The forward measures of the two curves are $\bar\QQ^{T}$ and $\QQ^{p,T}$.
+\end{hypo}
+
+\begin{rema}[Bonds as collateral]
+This is the structure of native and non-native collateral of \autoref{sec:market_observables_list}: $\bar p = Z^{f|f}$, $p = Z^{f|d}$, $b = q^{f\to d}$ and $\Sigma^b = \Sigma^{f\to d}$, with the convention $\Sigma^{d|j} = \Sigma^{d|i} + \Sigma^{i\to j}$. As noted in the footnote on non-cash collateral in \autoref{ssec:rn_pricing}, a rehypothecable security posted as collateral earns its repo rate: the bond curve is the curve of the bond as collateral. In the code, \texttt{repo.RepoModel} is an LGCM with the block $f$ for the bond curve, the block $c$ for the basis, no $d$ factor and zero FX volatility.
+\end{rema}
+
+\begin{rema}[Liquidity basis]
+McCloud splits the discount rate of the bond maturing at $T$ as $\bar r^T_t = \bar r_t + \bar z^T_t$ (curve and liquidity contributions, (9)) and defines the liquidity adjustment $L^{eT}_t = \log \bar\EE^{eT}_t[\exp\int_t^e \bar s^{eT}_u du]$, $\bar s^{eT} = \bar z^T - \bar z^e$, which is $\mu_S + \frac12\sigma_S^2$ for a Gaussian $S = \int_t^e \bar s^{eT}_u du$ ((13), (16), (21)). It multiplies the repo discount factors by $e^{-L^{eT}_t}$. We set $\bar z = 0$ in the rest of this section.
+\end{rema}
+
+\subsection{Repo contracts}
+
+\begin{defi}[Repo]
+A forward-starting repo agreed at $t$ over $[s,e]$ on the bond maturing at $T$, $t\le s<e\le T$, exchanges at $s$ one unit of cash for $1/\bar p^T_s$ bonds, which are returned at $e$ against $1+\delta f^{eT}_{ts}$. The \emph{repo rate} $f^{eT}_{ts}$ makes its value zero at $t$; the repo is discounted at $r$ (McCloud (10)).
+\end{defi}
+
+\begin{rema}[Time and day count]
+Model time is in ACT/365 years: the interval $e - s$ drives the convexity. The accrual fraction $\delta$ only converts the gross forward price into a quoted rate. It is a parameter of the contract: $\delta = (e-s)\cdot 365/360$ for ACT/360 (USD, EUR repo) and $\delta = e - s$ for ACT/365 (GBP). The convexity $K^{\mathrm{repo}}$ below does not depend on $\delta$.
+\end{rema}
+
+\subsection{Repo rate as a collateral convexity adjustment}
+
+\begin{prop}[Repo rate]\label{prop:repo_rate}
+\begin{eqnarray}
+	1 + \delta f^{eT}_{ts} &=& \frac{\bar p^s_t}{\bar p^e_t} \, K^{\mathrm{repo}}_t(s,e,T), \qquad
+	K^{\mathrm{repo}}_t(s,e,T) \;:=\; \frac{\EE^{p,e}_t\left[\bar p^T_e/\bar p^T_s\right]}{\bar\EE^{e}_t\left[\bar p^T_e/\bar p^T_s\right]}
+	\;=\; \Q^{\bar p\to p}_{t,e}\left[\bar p^T_e/\bar p^T_s\right].
+\end{eqnarray}
+This is model-free.
+\end{prop}
+
+\begin{proof}
+The zero value of the repo at $t$ is $\EE_t[e^{-\int_t^e r_u du}(\bar p^T_e/\bar p^T_s - (1+\delta f))] = 0$, so $1 + \delta f = \EE^{p,e}_t[\bar p^T_e/\bar p^T_s]$. Under $\bar\QQ^e$, $\bar p^T/\bar p^e$ and $\bar p^s/\bar p^e$ are martingales, so $\bar\EE^e_s[\bar p^T_e/\bar p^T_s] = 1/\bar p^e_s$ and $\bar\EE^e_t[1/\bar p^e_s] = \bar p^s_t/\bar p^e_t$. Divide.
+\end{proof}
+
+\subsection{Repo convexity in the LGCM}
+
+\begin{prop}[LGCM repo convexity]\label{prop:repo_lgcm}
+With deterministic volatilities,
+\begin{eqnarray}
+	\ln K^{\mathrm{repo}}_t(s,e,T) &=& -\int_t^s \left(\bar\Sigma_{u,e} - \bar\Sigma_{u,s}\right)\cdot\Sigma^b_{u,e}\,du
+	\;-\; \int_s^e \left(\bar\Sigma_{u,e} - \bar\Sigma_{u,T}\right)\cdot\Sigma^b_{u,e}\,du .
+\end{eqnarray}
+\end{prop}
+
+\begin{proof}
+$v_u := \bar\EE^e_u[\bar p^T_e/\bar p^T_s]$ is a $\bar\QQ^e$-martingale with $v_u = \bar p^s_u/\bar p^e_u$ for $u\le s$ and $v_u = \bar p^T_u/(\bar p^e_u\,\bar p^T_s)$ for $s\le u\le e$. It is lognormal with volatility $\sigma^v_u = \bar\Sigma_{u,e} - \bar\Sigma_{u,s}$ on $[t,s]$ and $\bar\Sigma_{u,e} - \bar\Sigma_{u,T}$ on $[s,e]$. Apply \autoref{prop:collateral_convexity} with $i\to j = \bar p\to p$ and maturity $e$.
+\end{proof}
+
+The first term is the Libor collateral convexity \eqref{eq:libor_collateral_convexity_lgcm} of the forward rate on $[s,e]$; it is the whole convexity for a repo to maturity ($T = e$). The second term is new: during the repo window the bond still has $T-e$ to run, and its price at $e$ is correlated with the basis.
+
+\begin{coro}[Maturity and forwardness]\label{coro:repo_m_f}
+Let $C^{eT}_{ts} = \ln K^{\mathrm{repo}}_t(s,e,T)$, $M^{eT}_t = C^{eT}_{tt} = \int_t^e (\bar\Sigma_{u,T} - \bar\Sigma_{u,e})\cdot\Sigma^b_{u,e}\,du$ and $F^{eT}_{ts} = C^{eT}_{ts} - (M^{eT}_t - M^{sT}_t)$ (McCloud (17)). Then $M^{ee}_t = 0$, $F^{eT}_{tt} = 0$ and, with the repo discount factor $\hat p^{eT}_t = \bar p^e_t e^{-M^{eT}_t}$,
+\begin{eqnarray}
+	1 + \delta f^{eT}_{ts} &=& \frac{\hat p^{sT}_t}{\hat p^{eT}_t} e^{F^{eT}_{ts}} .
+\end{eqnarray}
+\end{coro}
+
+\begin{proof}
+The definitions and \autoref{prop:repo_rate}.
+\end{proof}
+
+\subsection{The Hull--White case}
+
+\begin{prop}[Hull--White repo convexity]\label{prop:repo_hw}
+Let $d\bar r_t = \theta(\bar r^*_t - \bar r_t)dt + \sigma dx_t$ and $db_t = \kappa(b^*_t - b_t)dt + \varepsilon dy_t$ with $dx_t\,dy_t = \rho\,dt$ (McCloud (27)). With $E(\beta,\tau) = (1-e^{-\beta\tau})/\beta$, $\bar\Sigma_{u,T} = \sigma E(\theta, T-u)$ and $\Sigma^b_{u,T} = \varepsilon E(\kappa, T-u)$. Then
+\begin{eqnarray}
+	C^{eT}_{ts} &=& \frac{\rho\sigma\varepsilon}{\theta\kappa}\Big( (1-e^{-\theta(T-e)})\int_t^e e^{-\theta(e-u)}(1-e^{-\kappa(e-u)})du \nonumber\\
+	&& \qquad - (1-e^{-\theta(T-s)})\int_t^s e^{-\theta(s-u)}(1-e^{-\kappa(e-u)})du \Big),
+\end{eqnarray}
+which is McCloud (30); integrating gives his (33) and (34).
+\end{prop}
+
+\begin{proof}
+$\bar\Sigma_{u,e} - \bar\Sigma_{u,s} = \sigma e^{-\theta(s-u)}E(\theta,e-s)$ and $\bar\Sigma_{u,T} - \bar\Sigma_{u,e} = \sigma e^{-\theta(e-u)}E(\theta,T-e)$. Substitute in \autoref{prop:repo_lgcm} and split $\int_t^e = \int_t^s + \int_s^e$ in (30).
+\end{proof}
+
+\begin{rema}[Check of McCloud's formulas]
+McCloud's (30), (33) and (34) agree with \autoref{prop:repo_lgcm}, including the signs, with $\rho$ the correlation of $\bar r$ and $b$: the measured agreement is $10^{-11}$ relative or better. The closed forms divide by $\theta\kappa(\theta+\kappa)$. The LGCM formula is stable at zero mean reversion, where
+\begin{eqnarray*}
+	C^{eT}_{ts} &=& -\rho\sigma\varepsilon\left[\tfrac12(e-s)\left((e-t)^2-(e-s)^2\right) - \tfrac12(T-e)(e-s)^2\right] .
+\end{eqnarray*}
+Both checks are in \texttt{tests/test\_repo.py}.
+\end{rema}
+
+\subsection{Repo discount curves}
+
+\begin{prop}[Hull--White repo curve]\label{prop:repo_hw_curve}
+In the Hull--White case of \autoref{prop:repo_hw}:
+\begin{enumerate}
+\item The infinite maturity repo curve $\hat p^{e}_t := \hat p^{e\infty}_t$ has instantaneous forwards $\hat f^e_t = \bar f^e_t + \frac{\rho\sigma\varepsilon}{\theta\kappa}e^{-\theta(e-t)}(1-e^{-\kappa(e-t)})$ (McCloud (38)). For $e\ge E$, $\hat f^e_t - \bar f^e_t = (\hat f^E_t - \bar f^E_t)\,e^{-\theta(e-E)}\frac{1-e^{-\kappa(e-t)}}{1-e^{-\kappa(E-t)}}$ (McCloud (39)).
+\item $\hat p^{eT}_t = (\bar p^e_t)^{w}(\hat p^{e}_t)^{1-w}$ with $w = e^{-\theta(T-e)}$ (McCloud (41)).
+\item $F^{eT}_{ts} = (1 - e^{-(\theta+\kappa)(s-t)})\,F^{eT}_{-\infty,s}$, so $1+\delta f^{eT}_{ts} = (1+\delta f^{eT}_{ss})^{w'}(1+\delta f^{eT}_{-\infty,s})^{1-w'}$ with $w' = e^{-(\theta+\kappa)(s-t)}$ at fixed $\hat p^{sT}_t/\hat p^{eT}_t$ (McCloud (43)).
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+By (34), $M^{eT}_t = (1-e^{-\theta(T-e)})M^{e\infty}_t$, which gives 2.; differentiate $M^{e\infty}_t$ in $e$ for 1.; $F^{eT}_{ts}$ in (34) has the factor $(1-e^{-(\theta+\kappa)(s-t)})$, and its other factors depend on $s$, $e$, $T$ only, which gives 3.
+\end{proof}
+
+\begin{rema}[Beyond Hull--White]
+The interpolations of \autoref{prop:repo_hw_curve} use a single mean reversion and do not hold with several factors or piecewise constant parameters. In a two-factor bond, one-factor basis piecewise constant model (\texttt{test\_interpolation\_fails\_beyond\_hull\_white}), the mean reversion implied by $M^{eT}/M^{e\infty} = 1-e^{-\theta(T-e)}$ is $0.0232$ at $T-e = 2$ and $0.0296$ at $T-e = 20$ (measured), and the ratio $F(\tau)/F(\infty)$ is $0.18$, $0.31$, $1.02$, $1.53$, $1.38$ at $\tau = 0.5, 1, 3, 6, 10$: not monotone and above one. Use \autoref{prop:repo_lgcm} directly.
+\end{rema}
+
+\subsection{Coupon bonds}
+
+\begin{defi}[Repo on a coupon bond]
+A coupon bond pays $c_k$ at $T_k$ and is worth $\bar P_t = \sum_{T_k>t} c_k\bar p^{T_k}_t$ (ex-coupon at the payment dates). In the repo over $[s,e]$, one unit of cash buys $1/\bar P_s$ bonds at $s$; the bond matures at or after $e$; the cash flows paid in $(s,e]$, including a redemption at $e$, are passed through to the bond's economic owner at $T_k$ (manufactured payments, discounted at $r$); a coupon at $s$ belongs to the seller; at $e$ the ex-coupon bonds are returned against $1+\delta f$.
+\end{defi}
+
+\begin{prop}[Coupon repo rate]\label{prop:repo_coupon}
+\begin{eqnarray}
+	p^e_t\,(1+\delta f) &=& p^s_t\,\EE^{p,s}_t[Y_s], \qquad
+	Y_s \;=\; \frac{1}{\bar P_s}\left( \sum_{T_k>e} c_k\, p^e_s\,\frac{\bar p^{T_k}_s}{\bar p^e_s}\,K^{\mathrm{repo}}_s(s,e,T_k) + \sum_{s<T_k\le e} c_k\, p^{T_k}_s \right).
+\end{eqnarray}
+In the LGCM every term of $Y_s$ is the exponential of an affine function of the Gaussian state $z_s$, and $\EE^{p,s}[Y_s]$ is computed exactly by Gauss--Hermite quadrature. With a single cash flow it is \autoref{prop:repo_rate}. If $b = 0$, then $Y_s = 1$ and $1+\delta f = \bar p^s_t/\bar p^e_t$ for any coupons.
+\end{prop}
+
+\begin{proof}
+Condition on $\mathcal F_s$. By \autoref{prop:repo_rate} at $t = s$, $\EE^{p,e}_s[\bar p^{T_k}_e] = (\bar p^{T_k}_s/\bar p^e_s)K^{\mathrm{repo}}_s(s,e,T_k)$, and a coupon at $T_k\in(s,e]$ is worth $c_k p^{T_k}_s$ at $s$. If $b = 0$ then $p = \bar p$, $K = 1$ and the bracket is $\bar P_s$.
+\end{proof}
+
+\begin{defi}[Frozen weights]\label{defi:repo_frozen}
+Write $Y_s = N(z)/D(z)$ with $N = \sum_k a_k e^{\alpha_k\cdot z}$, $D = \sum_j c_j e^{\beta_j\cdot z}$ and $z\sim\mathcal N(\mu, P)$ under $\QQ^{p,s}$. Replace $D$ by the lognormal with the same mean $\bar D = \sum_j c_j e^{\beta_j\cdot\mu + \frac12\beta_j^\top P\beta_j}$ and the loading $\bar\beta = \sum_j w_j\beta_j$, $w_j = c_j e^{\beta_j\cdot\mu + \frac12\beta_j^\top P\beta_j}/\bar D$. This gives, for any sum of exponentials $X = \sum_k x_k e^{\gamma_k\cdot z}$,
+\begin{eqnarray}
+	\mathrm{FW}[X] &:=& \frac{1}{\bar D}\sum_k x_k \exp\left(\gamma_k\cdot\mu + \tfrac12\bar\beta^\top P\bar\beta + \tfrac12(\gamma_k-\bar\beta)^\top P(\gamma_k-\bar\beta)\right) \;\approx\; \EE\left[X/D\right] .
+\end{eqnarray}
+The frozen-weights approximation of the coupon repo rate uses $\EE[D/D] = 1$ as a control:
+\begin{eqnarray}
+	\EE^{p,s}[Y_s] &\approx& 1 + \mathrm{FW}[N] - \mathrm{FW}[D] .
+\end{eqnarray}
+\end{defi}
+
+\begin{rema}[Accuracy of frozen weights]\label{rema:repo_frozen}
+The control makes the approximation exact when $N = D$, in particular for $b = 0$ (\autoref{prop:repo_coupon}), and for a single cash flow, where $\mathrm{FW}$ is exact. Without the control, $\mathrm{FW}[D] = \sum_j w_j e^{\bar\beta^\top P\bar\beta - \bar\beta^\top P\beta_j} \neq 1$, which breaks the $b=0$ identity; at the parameters of \autoref{rema:repo_verification} this artefact was $96\%$ of the approximation error (6\% coupon, window $[1.2,1.6]$). Measured with the control: the error of the repo rate scales as $\lambda^4$ when all volatilities are scaled by $\lambda$ (errors $2.6\cdot10^{-5}$, $1.6\cdot10^{-6}$, $1.0\cdot10^{-7}$ for $\lambda = 4, 2, 1$, ratios $16.2$ and $16.0$). This is an observation, not a proof. For a $10$Y semi-annual bond with a coupon in the window $[1.2,1.6]$, the approximation misses at most $0.56\%$ of the gap between the repo rate and the bond forward (coupons $0$ to $8\%$).
+\end{rema}
+
+\begin{rema}[What the coupon adds]
+For a coupon bond, the gap between the repo rate and the bond forward is not all convexity. A coupon in $(s,e]$ is passed through at $T_k$ and discounted at $r$, while the bonds are priced at $\bar r$: with $b \neq 0$ this moves the rate even at $\rho = 0$. In the example above, at a $6\%$ coupon, the gap is $-0.124$bp at $\rho = 0$ and a further $-0.057$bp from the correlation; for a zero-coupon bond it is all correlation ($-0.143$bp). The notebook plots the two parts separately.
+\end{rema}
+
+\subsection{Bond-collateralised derivatives}
+
+\begin{prop}[Overnight repo]\label{prop:repo_overnight}
+In the LGCM, as $h\to0$: $\ln K^{\mathrm{repo}}_t(t,t+h,T) = O(h^2)$, so the spot overnight repo rate on any bond of the curve converges to $\bar r_t$. For a forward start $s>t$,
+\begin{eqnarray}
+	\frac1h \ln K^{\mathrm{repo}}_t(s,s+h,T) &\to& -\int_t^s \partial_s\bar\Sigma_{u,s}\cdot\Sigma^b_{u,s}\,du ,
+\end{eqnarray}
+which is $-\rho\sigma\varepsilon\,(E(\theta,s-t)-E(\theta+\kappa,s-t))/\kappa$ in the Hull--White case: the forward overnight repo rate is not the bond forward rate.
+\end{prop}
+
+\begin{proof}
+For $s = t$ the first integral of \autoref{prop:repo_lgcm} vanishes; in the second, $\bar\Sigma_{u,t+h} - \bar\Sigma_{u,T}$ is bounded and $\Sigma^b_{u,t+h} = O(h)$ on an interval of length $h$. For $s > t$, $\bar\Sigma_{u,s+h} - \bar\Sigma_{u,s} = h\,\partial_s\bar\Sigma_{u,s} + O(h^2)$ and the second integral is $O(h^2)$.
+\end{proof}
+
+\begin{hypo}[Security collateral]
+Posting a fully rehypothecable security as collateral, with no haircut, is equivalent to posting cash collateral that earns the security's spot overnight repo rate: the effective discount rate of the collateralised trade is that repo rate. This is the extension to non-cash collateral suggested in the footnote of \autoref{ssec:rn_pricing} (see also Piterbarg \cite{Piterbarg:Cooking}); it is an assumption on how the collateral is financed, not a consequence of the framework.
+\end{hypo}
+
+\begin{prop}[Discount curve of bond-collateralised derivatives]\label{prop:repo_bond_collateral}
+Under the Hypothesis "Security collateral", a derivative collateralised by a bond of the curve (no haircut, $\bar z = 0$) has effective discount rate $\bar r$: its discount curve is the bond curve $\bar p$.
+\end{prop}
+
+\begin{proof}
+By \autoref{prop:repo_overnight}, the spot overnight repo rate of the bond at $u$ is $\bar r_u$. By the Hypothesis, $V_t = \EE_t[e^{-\int_t^T\bar r_u du}V_T]$, and $V_T = 1$ gives $\bar p^T_t$.
+\end{proof}
+
+\begin{rema}[Term repo curve or bond curve]
+McCloud (\S4) proposes the extrapolated term repo curve $\hat p^e$ for discounting bond-collateralised derivatives. That corresponds to a different financing assumption than the Hypothesis "Security collateral": the collateral financed with term repos locked at inception. Under rolling overnight financing, \autoref{prop:repo_bond_collateral} gives $\bar p$, and the two differ by the maturity adjustment $M^{e\infty}$. Which one applies is a question about how the collateral is actually funded, not one the model decides. The size of the difference is shown in the notebook \texttt{repo\_convexity.py} (in \texttt{python/notebooks}).
+\end{rema}
+
+\subsection{Verification}
+
+\begin{rema}[Verification]\label{rema:repo_verification}
+The checks are in \texttt{python/convexity/tests/test\_repo.py}. Hull--White parameters are $\theta = 5\%$, $\sigma = 1\%$, $\kappa = 40\%$, $\varepsilon = 0.8\%$, $\rho = -0.5$, with flat curves $\bar r = 3.5\%$, $b = -20$bp.
+\begin{enumerate}
+\item \autoref{prop:repo_lgcm} against nested adaptive quadrature in a two-factor bond, one-factor basis piecewise model with zero, tiny and negative mean reversions: $6\cdot10^{-15}$ relative. For $T = e$ it equals the Libor collateral convexity to $10^{-16}$ absolute (the round-off of \texttt{libor\_convexity}; $1.5\cdot10^{-11}$ relative at $\ln K = 5\cdot10^{-6}$).
+\item \autoref{prop:repo_hw}: McCloud's closed forms to $10^{-11}$ relative, also past the last knot and for small and negative mean reversions; the polynomial limit at $\theta = \kappa = 0$ to $10^{-12}$.
+\item \autoref{prop:repo_hw_curve}: the interpolations (41), (43) and the extrapolation (39) hold to $10^{-12}$ in Hull--White; the forward spread (38) matches a central finite difference of $M^{e\infty}_0$ to $10^{-7}$; the failure beyond Hull--White is quoted in the Remark above.
+\item \autoref{prop:repo_coupon}: a one-cash-flow bond reproduces \autoref{prop:repo_rate} to $10^{-13}$; $b = 0$ gives the bond forward to $10^{-13}$; Gauss--Hermite with $40$ and $60$ nodes agree to $10^{-14}$.
+\item Monte Carlo (exact LGCM scheme, $2^{18}$ antithetic paths, seeds $1$ to $4$, volatilities scaled by $3$, control variates $\EE[D_{0,e}] = p^e_0$ and the bond-collateralised repo of value $\bar p^s_0$): the zero-coupon repo rate ($s=1.3$, $e=2.1$, $T=7.5$, convexity $-1.20$bp) is at $z = -1.39, +0.57, +0.45, -0.23$; the bond forward ($K = 1$) is rejected at $7.8$ to $9.8$ standard errors. The coupon repo rate (10Y semi-annual 5\%, two coupons in the window) is at $z = -0.88, +1.42, +0.72, -0.57$ against the quadrature; the frozen weights approximation (Definition~\ref{defi:repo_frozen}) is also within $4$ standard errors ($z = -1.41, +0.89, +0.19, -1.10$).
+\item \autoref{prop:repo_overnight}: $\ln K_0(0,h,10)$ scales as $h^2$; the forward overnight limit matches the Hull--White closed form ($1.14$bp at $s = 3$).
+\end{enumerate}
+\end{rema}
+
+
+\newpage%
 \section{Remarks}
 
 
@@ -5697,6 +5897,11 @@ Risk Magazine, 2011.
 \textsc{P. McCloud,}
 \textit{Collateral Volatility},
 SSRN.
+%
+\bibitem{McCloud:RepoConvexity}
+\textsc{P. McCloud,}
+\textit{Repo convexity},
+arXiv:1905.03316, 2019.
 %
 \bibitem{Piterbarg:Cooking}
 \textsc{V. Piterbarg,}

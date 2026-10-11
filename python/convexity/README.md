@@ -35,6 +35,8 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `schemes.py` (`ExactScheme.simulate_dates`), `montecarlo.py` (`Simulator.simulate_dates`) | the LGCM state at every date of a grid along the same paths, in one pass |
 | `tests/test_curves.py` | curves, instruments and the deterministic curve bootstrap |
 | `tests/test_calibration.py` | LGCM pricer, calibration and repricing checks (the Monte Carlo ones are marked `slow`) |
+| `repo.py` | bonds and repo (McCloud, *Repo convexity*): `RepoModel` (LGCM with block f = bond curve, c = discounting basis, no d factor, zero FX vol), `BondCurves`; `repo_convexity` (ln K^{repo}), `maturity_adjustment`, `forwardness_adjustment`, `repo_rate` (ACT/360 or ACT/365 accrual), `repo_discount_factor`; McCloud's Hull-White closed forms `hw_*`; `CouponBond`, `coupon_repo_rate` (frozen weights) and `coupon_repo_rate_exact` (Gauss–Hermite); `mc_repo_rate` |
+| `tests/test_repo.py` | the checks of Remark "Verification" of section "Bonds, repo and repo convexity" |
 
 ## What is checked
 
@@ -58,6 +60,11 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | Remark "Verification" (analytic) | `test_analytic_report`, `test_check_row_z_without_stderr` | Gaussian gaps: swaptions 0 < approx/exact - 1 < 1e-2, CB vols < 2e-4 |
 | Remark "Verification" (Monte Carlo, `slow`) | `test_mc_report_within_4_stderr`, `test_mc_report_stderr_bounded`, `test_mc_rejects_missing_collateral_convexity`, `test_mc_rejects_gaussian_swaption_approximation`, `test_cb_vol_control_has_zero_mean` | 4 s.e. with fixed seeds; negative controls: K = 1 CCS spread > 10 s.e. away (measured 19.7 / 26.1 / 35.6 at 5 / 7 / 10Y), Gaussian swaption > 4 s.e. away (7.8 / 7.0 at USD 15Y / 20Y x 10Y) |
 | `simulate_dates` | `test_simulate_dates_martingales`, `test_simulate_dates_single_date_is_simulate`, `test_simulate_dates_rejects_empty`, `test_simulate_dates_time_zero_only`, `test_mc_report_ccs_with_fixings_at_time_zero_only`, `test_cv_mean_and_stderr_reduces_variance` | martingale identities; path-by-path equality with `simulate` (1e-12) |
+| Proposition "LGCM repo convexity" | `test_repo_convexity_matches_quadrature`, `test_repo_to_maturity_is_libor_convexity`, `test_boundary_conditions` | nested quadrature (6e-15 rel.); T = e is the Libor collateral convexity (1e-16 absolute) |
+| Proposition "Hull–White repo convexity" (McCloud (30), (33), (34), (38), (39), (41), (43)) | `test_hull_white_matches_mccloud`, `test_zero_mean_reversion_limit`, `test_hull_white_*_interpolation`, `test_hull_white_forward_spread_and_extrapolation`, `test_interpolation_fails_beyond_hull_white` | McCloud's closed forms (1e-11); polynomial limit at theta = kappa = 0; the interpolations fail in a two-factor piecewise model (implied theta 0.023 vs 0.030) |
+| Proposition "Coupon repo rate", Definition and Remark "Frozen weights" | `test_single_cashflow_is_zero_coupon`, `test_zero_basis_gives_bond_forward`, `test_frozen_weights_error_order`, `test_mc_coupon_repo_rate`, `test_coupon_on_window_boundaries_exact_vs_mc` | Gauss–Hermite (converged to 1e-14); frozen weights with the control E[D/D] = 1 keep the b = 0 identity (1e-13), error O(lambda^4) (measured ratios 16.2, 16.0, not proved); exact and frozen weights both within 4 s.e. of MC at vol scale 3 |
+| Proposition "Overnight repo" | `test_spot_overnight_repo_is_bond_rate`, `test_forward_overnight_repo_limit` | spot: O(h^2); forward: Hull–White closed-form limit |
+| Monte Carlo of the zero-coupon repo rate | `test_mc_zero_coupon_repo_rate` | 4 s.e. (seeds 1–4, 2^18 paths); bond forward (K = 1) rejected at 7.8 to 9.8 s.e. |
 
 The test model (`default_model`) has two domestic factors, one foreign factor, one collateral
 basis factor and the FX factor. Its parameters are piecewise constant, with zero, 1e-7 and
@@ -163,3 +170,21 @@ collateral, which use the FX collateral convexity (0.15% at 5Y) and Z^{d|f}_0. I
 approximation by 7 to 16 standard errors (smile), and forward discount factors paid at fixing by
 about 3 standard errors (convexity under stochastic vol). Timing: 18 payoffs on 2^18 paths in 5 s
 (exact scheme) and 15 s (Euler, dt = 0.02).
+
+## Repo convexity
+
+`repo.py` implements section "Bonds, repo and repo convexity" of the notes (McCloud, *Repo convexity*,
+arXiv:1905.03316). The repo rate on the bond maturing at T over [s, e] is
+1 + delta f = (pbar_{0,s}/pbar_{0,e}) K^{repo}_0(s, e, T): a forward collateral convexity, with the bond curve as the
+native curve and the OIS curve as the collateral. Run from `python/`:
+
+```python
+from convexity import repo
+rm = repo.RepoModel.hull_white(theta=0.05, sigma=0.01, kappa=0.4, eps=0.008, rho=-0.5)
+cv = repo.BondCurves.flat(rbar=0.035, b=-0.002)
+repo.repo_rate(rm, cv, 1.0, 1.25, 10.0)                                  # 3M repo in 1Y on a 10Y bond, ACT/360
+repo.coupon_repo_rate_exact(rm, cv, repo.CouponBond.fixed(10.0, 0.05, 2), 1.0, 1.25)
+repo.mc_repo_rate(rm, cv, 10.0, 1.0, 1.25, n_paths=2**18)               # (rate, stderr)
+```
+
+The notebook `python/notebooks/repo_convexity.py` shows the impacts: `marimo edit python/notebooks/repo_convexity.py`.
