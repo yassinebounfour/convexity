@@ -1,0 +1,111 @@
+"""Compounded overnight coupons: convexity closed forms, exact benchmark (Task 1), pricer (Task 2),
+markets and inverted FX (Task 3), Monte Carlo (Task 4)."""
+import numpy as np
+import pytest
+
+from convexity.lgcm import default_model
+from convexity.market import (InitialCurves, Coupon, LIBOR, coupon_grid, libor_convexity, compounded_convexity,
+                              _compounded_convexity_scalar)
+from convexity.benchmarks import coupon_value_exact, coupon_expectation_exact
+from convexity.curves import Index, LGCMSetup, CurveSet
+
+M, CV = default_model(), InitialCurves()
+
+
+def test_coupon_grid_lands_on_b():
+    g = coupon_grid(1.0, 1.25, 1 / 52)
+    assert g[0] == 1.0 and g[-1] == 1.25 and np.all(np.diff(g) > 0)
+    assert np.all(np.diff(g)[:-1] == pytest.approx(1 / 52)) and np.diff(g)[-1] <= 1 / 52 + 1e-15
+    np.testing.assert_array_equal(coupon_grid(1.0, 1.25, 1.0), [1.0, 1.25])
+
+
+def test_libor_is_the_one_step_daily_coupon():
+    for t in (0.0, 1.0):
+        assert Coupon("daily", 10.0).convexity(M, t, 5.0, 5.25) == pytest.approx(libor_convexity(M, t, 5.0, 5.25), rel=1e-14)
+        assert LIBOR.convexity(M, t, 5.0, 5.25) == libor_convexity(M, t, 5.0, 5.25)
+
+
+@pytest.mark.parametrize("coupon", [LIBOR, Coupon("daily", 1 / 52), Coupon("daily", 1 / 12)])
+@pytest.mark.parametrize("t", [0.0, 2.0])
+def test_closed_form_matches_exact_gaussian_benchmark(coupon, t):
+    a, b = 5.0, 5.25
+    assert coupon.convexity(M, t, a, b) == pytest.approx(coupon_value_exact(M, CV, coupon, a, b, t), rel=1e-11)
+
+
+def test_partially_accrued_period():
+    """t strictly inside the accrual period: only the days after t carry convexity."""
+    c = Coupon("daily", 1 / 52)
+    a, b, t = 5.0, 5.25, 5.0 + 5 / 52 + 1e-9
+    assert c.convexity(M, t, a, b) == pytest.approx(coupon_value_exact(M, CV, c, a, b, t), rel=1e-11)
+    assert Coupon("daily", 1 / 52).convexity(M, b, a, b) == 1.0
+
+
+def test_continuous_is_the_limit_of_daily_with_order_one():
+    a, b = 10.0, 10.25
+    kc = Coupon("continuous").convexity(M, 0.0, a, b)
+    errs = [abs(np.log(Coupon("daily", h).convexity(M, 0.0, a, b) / kc)) for h in (1 / 26, 1 / 52, 1 / 104)]
+    assert errs[0] / errs[1] == pytest.approx(2, rel=0.1) and errs[1] / errs[2] == pytest.approx(2, rel=0.1)
+
+
+def test_compounded_and_libor_convexities_differ_by_the_accrual_term():
+    a, b = 10.0, 10.25
+    kl, kc = LIBOR.convexity(M, 0.0, a, b), Coupon("continuous").convexity(M, 0.0, a, b)
+    assert kl != kc
+    extra = -M.I(M.Sig("f", b), M.Sig("c", b), a, b)
+    assert np.log(kc / kl) == pytest.approx(extra, rel=1e-12)
+
+
+# ---------------------------------------------------------------- sanity checks of the benchmark itself
+@pytest.mark.parametrize("coupon", [LIBOR, Coupon("daily", 1 / 52)])
+@pytest.mark.parametrize("t", [0.0, 2.0, 5.0 + 5 / 52 + 1e-9])
+def test_benchmark_native_coupon_is_model_free(coupon, t):
+    """E^{f|f,b}_t[C] = Z^{f|f}_{t,a'}/Z^{f|f}_{t,b} (a' = first fixing after t): native telescoping."""
+    a, b = 5.0, 5.25
+    g = coupon_grid(a, b, 10.0 if coupon.kind == "libor" else coupon.step)
+    a1 = g[g > t][0] if t > a else a
+    for z0 in (None, np.array([0.01, -0.02, 0.015, -0.005])):
+        ex = coupon_expectation_exact(M, CV, coupon, a, b, t, "f", z0)
+        zt = np.zeros(M.nr) if z0 is None else z0
+        ga, ca = M.lnZ("ff", t, a1)
+        gb, cb = M.lnZ("ff", t, b)
+        native = CV.Z0("ff", a1) / CV.Z0("ff", b) * np.exp(ga @ zt + ca - gb @ zt - cb)
+        assert ex == pytest.approx(native, rel=1e-12)
+
+
+def test_benchmark_convexity_does_not_depend_on_the_state_at_t():
+    """K_t is deterministic in the LGCM: the ratio is the same for any z_t."""
+    c, a, b, t = Coupon("daily", 1 / 12), 5.0, 5.25, 2.0
+    z0 = np.array([0.01, -0.02, 0.015, -0.005])
+    k0 = coupon_expectation_exact(M, CV, c, a, b, t, "d") / coupon_expectation_exact(M, CV, c, a, b, t, "f")
+    k1 = coupon_expectation_exact(M, CV, c, a, b, t, "d", z0) / coupon_expectation_exact(M, CV, c, a, b, t, "f", z0)
+    assert k1 == pytest.approx(k0, rel=1e-12)
+    assert k0 == pytest.approx(coupon_value_exact(M, CV, c, a, b, t), rel=1e-12)
+
+
+def test_vectorised_daily_convexity_matches_scalar_oracle():
+    for t, a, b in ((0.0, 10.0, 10.25), (2.0, 5.0, 5.25), (5.1, 5.0, 5.25), (0.0, 29.9, 30.2)):
+        assert compounded_convexity(M, t, a, b) == pytest.approx(_compounded_convexity_scalar(M, t, a, b), rel=1e-13)
+
+
+# ---------------------------------------------------------------- indices
+def test_index_coupon():
+    assert Index("EUR_EURIBOR3M", "EUR", "IBOR", 0.25, 0.001).coupon == LIBOR
+    assert Index("GBP_SONIA", "GBP").coupon == Coupon("daily", 1 / 365)
+    assert Index("GBP_SONIA", "GBP", compounding="continuous").coupon == Coupon("continuous", 1 / 365)
+    with pytest.raises(ValueError):
+        Index("X", "GBP", compounding="weekly")
+    with pytest.raises(ValueError):
+        Index("X", "GBP", "IBOR", 0.25, 0.0, compounding="continuous")   # compounding is for OIS only
+    with pytest.raises(ValueError):
+        Index("X", "GBP", on_step=0.0)
+    with pytest.raises(ValueError):
+        Coupon("weekly")
+
+
+def test_curve_set_and_initial_curves_coupon():
+    sofr, estr = Index("USD_SOFR", "USD"), Index("EUR_ESTR", "EUR", compounding="continuous")
+    cs = CurveSet(LGCMSetup(sofr, estr), 1.1)
+    assert cs.coupon("d") == Coupon("daily") and cs.coupon("f") == Coupon("continuous")
+    cs3 = CurveSet(LGCMSetup(sofr, estr, foreign_index=Index("EUR_EURIBOR3M", "EUR", "IBOR", 0.25, 0.001)), 1.1)
+    assert cs3.coupon("f") == LIBOR
+    assert CV.coupon("d") == LIBOR and CV.coupon("f") == LIBOR

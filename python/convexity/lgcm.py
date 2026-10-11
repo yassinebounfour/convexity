@@ -54,6 +54,51 @@ def Phi2(a, b, D):
     return 0.5 * D * sum(w * E(a, si) * E(b, si) for w, si in zip(GL_W, s))
 
 
+# ---------------------------------------------------------------- vectorised kernels
+_PHI1_N = np.arange(20)
+_PHI1_C = np.array([1.0 / factorial(n + 2) for n in range(20)])
+
+
+def E_vec(b, D):
+    """E(b, D) for arrays b, D (same branches as E)."""
+    b, D = np.broadcast_arrays(np.asarray(b, float), np.asarray(D, float))
+    x = b * D
+    small = np.abs(x) < 1e-8
+    with np.errstate(divide="ignore", invalid="ignore"):
+        big = -np.expm1(-x) / np.where(small, 1.0, b)
+    return np.where(small, D * (1 - x / 2 + x * x / 6), big)
+
+
+def Phi1_vec(b, D):
+    """Phi1(b, D) for arrays b, D (same branches as Phi1)."""
+    b, D = np.broadcast_arrays(np.asarray(b, float), np.asarray(D, float))
+    small = np.abs(b) * D < 0.1
+    ser = D ** 2 * (np.power.outer(-b * D, _PHI1_N) @ _PHI1_C)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        bs = np.where(small, 1.0, b)
+        big = (D - E_vec(bs, D)) / bs
+    return np.where(small, ser, big)
+
+
+def Phi2_vec(a, b, D):
+    """Phi2(a, b, D) for arrays a, b, D (series and closed-form branches vectorised, quadrature
+    branch by the scalar Phi2)."""
+    a, b, D = np.broadcast_arrays(np.asarray(a, float), np.asarray(b, float), np.asarray(D, float))
+    out = np.empty(a.shape)
+    ser = np.maximum(np.abs(a), np.abs(b)) * D < 0.5
+    if ser.any():
+        u = np.power.outer(-a[ser] * D[ser], _PHI2_K)
+        v = np.power.outer(-b[ser] * D[ser], _PHI2_K)
+        out[ser] = D[ser] ** 3 * np.einsum("nk,kl,nl->n", u, _PHI2_C, v)
+    cf = ~ser & (np.minimum(np.minimum(np.abs(a), np.abs(b)), np.abs(a + b)) * D > 0.05)
+    if cf.any():
+        aa, bb, dd = a[cf], b[cf], D[cf]
+        out[cf] = (dd - E_vec(aa, dd) - E_vec(bb, dd) + E_vec(aa + bb, dd)) / (aa * bb)
+    for k in np.flatnonzero(~ser & ~cf):
+        out.flat[k] = Phi2(a.flat[k], b.flat[k], D.flat[k])
+    return out
+
+
 # ---------------------------------------------------------------- model
 class Model:
     def __init__(self, knots, factors, R, sigx):
@@ -74,6 +119,14 @@ class Model:
 
     def Bcum(self, i, t):
         k = self.piece(t)
+        return self.Bk[i][k] + self.beta[i][k] * (t - self.knots[k])
+
+    def pieces(self, t):
+        """piece() for an array of times."""
+        return np.minimum(np.searchsorted(self.knots, t, side="right") - 1, len(self.knots) - 2)
+
+    def Bcum_vec(self, i, t):
+        k = self.pieces(t)
         return self.Bk[i][k] + self.beta[i][k] * (t - self.knots[k])
 
     def M(self, i, t, T):

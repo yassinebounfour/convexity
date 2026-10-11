@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .market import Coupon, LIBOR
+
 
 def _out(x, T):
     return float(x) if np.ndim(T) == 0 else x
@@ -23,12 +25,16 @@ def _out(x, T):
 class Index:
     """Rate index. OIS: kappa = 1. IBOR: constant multiplicative funding spread
     kappa = 1 + tenor * spread, i.e. 1 + tenor L_j = kappa Z_{j-1}/Z_j under native collateral
-    (kappa = 1 - theta S^{div} in the notes)."""
+    (kappa = 1 - theta S^{div} in the notes).
+    An OIS index pays a compounded overnight coupon: compounding = "daily" (exact, on a grid of step
+    on_step) or "continuous" (approximation); see market.Coupon."""
     name: str
     currency: str
     kind: str = "OIS"
     tenor: float = 0.25
     spread: float = 0.0
+    compounding: str = "daily"
+    on_step: float = 1 / 365
 
     def __post_init__(self):
         if self.kind not in ("OIS", "IBOR"):
@@ -37,6 +43,17 @@ class Index:
             raise ValueError(f"{self.name}: an OIS index has no funding spread")
         if self.tenor <= 0:
             raise ValueError(f"{self.name}: tenor must be positive")
+        if self.compounding not in ("daily", "continuous"):
+            raise ValueError(f"{self.name}: compounding must be daily or continuous, got {self.compounding!r}")
+        if not self.on_step > 0:
+            raise ValueError(f"{self.name}: on_step must be positive")
+        if self.kind == "IBOR" and (self.compounding, self.on_step) != ("daily", 1 / 365):
+            raise ValueError(f"{self.name}: compounding and on_step apply to OIS indices only")
+
+    @property
+    def coupon(self):
+        """market.Coupon of the index: Libor for IBOR, compounded overnight for OIS."""
+        return LIBOR if self.kind == "IBOR" else Coupon(self.compounding, self.on_step)
 
     @property
     def kappa(self):
@@ -252,6 +269,10 @@ class CurveSet:
         if key not in self:
             raise ValueError(f"{key} is not in the curve set" + (" (model output, set after calibration)" if kind == "df" else ""))
         return self.Z(key, T)
+
+    def coupon(self, role):
+        """market.Coupon of the floating index of role "d" or "f"."""
+        return {"d": self.setup.domestic_index, "f": self.setup.foreign_index}[role].coupon
 
     def fx_forward0(self, T):
         """x^{df|d}_{0,T} (d collateral)."""

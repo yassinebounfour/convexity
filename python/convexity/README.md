@@ -14,9 +14,10 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | file | contents |
 |---|---|
 | `lgcm.py` | piecewise-constant LGCM (blocks d, f, c = f→d, x); closed-form covariance integrals `covint` and a brute-force quadrature benchmark; `y_t`, `v^{f,c}_t`; ZCB reconstruction exponents |
+| `benchmarks.py` | exact Gaussian benchmark of the coupon collateral convexity (`coupon_value_exact`: state augmentation of the exact transitions, independent of the closed forms) |
 | `transitions.py` | exact one-step transitions of the state under Q^{d,RN}, the T-forward measure and the jumping numeraire measure |
 | `moments.py` | moment ODEs of the state SDE — an independent benchmark that does not use the covariance integrals |
-| `market.py` | `InitialCurves` (Z^{d\|d}_0, Z^{f\|f}_0, Z^{f\|d}_0, x_0, funding spreads) and the LGCM closed forms: Libor and FX collateral convexities, Z^{d\|f}_0, FX total variance, Black and Bachelier |
+| `market.py` | `InitialCurves` (Z^{d\|d}_0, Z^{f\|f}_0, Z^{f\|d}_0, x_0, funding spreads) coupon types `Coupon` (Libor, daily or continuously compounded overnight; `coupon_grid`) and the LGCM closed forms: Libor, compounded-coupon (`compounded_convexity`) and FX collateral convexities, Z^{d\|f}_0, FX total variance, Black and Bachelier |
 | `schemes.py` | `MCScheme` base class and its schemes: `EulerScheme(dt, y_mode)` for the QGCM with stochastic local vol and simulated `y_t`, `v^{f,c}_t`; `ExactScheme(dt)` with exact Gaussian transitions for the LGCM |
 | `montecarlo.py` | `Simulator(model, kappa, floor, scheme)`: QGCM local vol, reconstruction formulas and deflators; path generation is delegated to the scheme. Vectorised over paths, antithetic |
 | `payoffs.py` | `Payoff` hierarchy and `price(sim, payoffs, curves, n_paths, seed)` |
@@ -25,7 +26,7 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `tests/test_lgcm.py` | the checks quoted in the verification remarks of the notes |
 | `tests/test_montecarlo.py` | reduced Monte Carlo checks (4 standard error tolerance, fixed seeds) |
 | `tests/test_payoffs.py` | Monte Carlo prices of all payoffs against LGCM closed forms, model-free prices in the QGCM, put-call parities |
-| `curves.py` | `Index` (OIS or IBOR with funding spread, kappa = 1 + theta s), curve keys `DiscountCurveKey(currency, collateral)` / `ForwardCurveKey`, `PiecewiseFlatCurve`, `SpreadCurve` (Z^{f\|d} = Z^{f\|f} x collateral basis curve), `FunctionCurve`, `LGCMSetup` (roles d, f and collateral indices), `CurveSet` (duck-type compatible with `InitialCurves`) |
+| `curves.py` | `Index` (OIS with daily or continuous compounding, or IBOR with funding spread, kappa = 1 + theta s; `.coupon`), curve keys `DiscountCurveKey(currency, collateral)` / `ForwardCurveKey`, `PiecewiseFlatCurve`, `SpreadCurve` (Z^{f\|d} = Z^{f\|f} x collateral basis curve), `FunctionCurve`, `LGCMSetup` (roles d, f and collateral indices), `CurveSet` (duck-type compatible with `InitialCurves`) |
 | `instruments.py` | calibration instruments (pure data): `Swap`, `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`; `Quote`, `MarketQuotes` |
 | `pricers.py` | `DeterministicPricer` (DCB: K = 1, no options), `LGCMPricer` (Libor convexities, exact one factor swaption, Gaussian swaption variance with separate fixed/float schedules, FX vol, CB vol exact and Gaussian) |
 | `curve_calibration.py` | generic sequential curve bootstrap with a convexity provider; `calibrate_curves(quotes)` is the DCB market practice |
