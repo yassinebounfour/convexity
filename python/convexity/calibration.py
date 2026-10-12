@@ -7,7 +7,8 @@ are piecewise constant on the block's calibration expiries (flat extrapolation).
 the union of the expiries.
 
 Algorithm "LGCM calibration":
-1. native curves Z^{d|d}, Z^{f|f} from swaps (model-free bootstrap);
+1. native curves Z^{d|d}, Z^{f|f} from swaps (model-free bootstrap, or the global fit of curve_fitting
+   if ModelSpec.curves is a GlobalFit; the same choice is used for Z^{f|d} in step 3);
 2. lambda^d, lambda^f from ATM swaption normal vols, expiry by expiry: Gaussian approximation guess
    (the segment variance is v0 + lambda^2 v1), then the exact one-factor price;
 3. fixed point: Z^{f|d} from FX forwards and resetting CCS with the LGCM collateral convexities of
@@ -24,7 +25,7 @@ import time
 import numpy as np
 
 from .curve_calibration import BootstrapReport, CalibrationError, bootstrap, root_in_bracket
-from .curves import CurveSet, FunctionCurve
+from .curves import CurveSet, FunctionCurve, HybridCurve
 from .instruments import CurrencyBasisSwaption, FXOption, Swaption
 from .lgcm import Model
 from .market import fx_total_variance, lgcm_Zdf0
@@ -62,6 +63,7 @@ class ModelSpec:
     exact: bool = True
     tol: float = 1e-12
     max_iter: int = 30
+    curves: object = None       # None: sequential bootstrap; curve_fitting.GlobalFit: nested global fit
 
     def __post_init__(self):
         n = self.d.n + self.f.n + self.c.n + 1
@@ -224,7 +226,14 @@ def _marked(spec, swaptions, cb_vols, fx_vols):
 
 def _snapshot(model, curves):
     fd = curves[curves.setup.key("fd")]
-    return np.r_[model.sig[model.idx["c"][0]], fd.forwards]
+    state = fd.spread.params if isinstance(fd.spread, HybridCurve) else fd.forwards
+    return np.r_[model.sig[model.idx["c"][0]], state]
+
+
+def _fit_curves(spec, quotes, curves, pricer, targets):
+    if spec.curves is None:
+        return bootstrap(quotes, curves, pricer, targets=targets)
+    return spec.curves.fit(quotes, curves, pricer, targets=targets)
 
 
 # ---------------------------------------------------------------------- driver
@@ -246,14 +255,14 @@ def calibrate(quotes, spec=None):
 
     # 1. native curves
     curves = CurveSet(setup, quotes.x0)
-    report = bootstrap(quotes, curves, DeterministicPricer(curves), targets=[setup.key("dd"), setup.key("ff")])
+    report = _fit_curves(spec, quotes, curves, DeterministicPricer(curves), [setup.key("dd"), setup.key("ff")])
     # 2. rates vols
     for b in "df":
         _bootstrap_swaptions(model, spec, curves, swaptions[b], b, diag)
     # 3. Z^{f|d} and lambda^c
     fd_report, history, prev = None, [], None
     for it in range(1, spec.max_iter + 1):
-        fd_report = bootstrap(quotes, curves, LGCMPricer(model, curves, spec.exact), targets=[setup.key("fd")])
+        fd_report = _fit_curves(spec, quotes, curves, LGCMPricer(model, curves, spec.exact), [setup.key("fd")])
         if cb_vols:
             _bootstrap_cb_vols(model, spec, curves, cb_vols)
         snap = _snapshot(model, curves)

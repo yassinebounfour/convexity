@@ -3430,6 +3430,12 @@ We write $\kappa^e = 1-\theta S^{e|e,\div} = 1+\theta s^e$ for the constant mult
   \label{eq:cal_swap_rate}
 \end{eqnarray}
 since $1+\theta L^{e|e}_{0,t^f_{i-1};\theta} = \kappa^e Z_{t^f_{i-1}}/Z_{t^f_i}$. The coefficients are $c^f = \kappa^e$ at $T_0$, $\kappa^e - 1$ at the intermediate floating dates and $-1$ at $T_n$. For an OIS (RFR) swap, $\kappa^e = 1$ holds exactly by \autoref{lemm:coupon_native_forward}, whatever the floating frequency and the compounding (daily or continuous): the floating leg is $Z_{T_0} - Z_{T_n}$. The GBP and JPY swaps of the examples are annual fixed against compounded SONIA or TONA.
+\item \emph{Rate futures.} A future on the index of currency $e$ over $[a,b]$ (e.g.\ $3$M SOFR) is quoted as the price $100(1-R^{\mathrm{fut}})$, with
+\begin{eqnarray}
+  R^{\mathrm{fut}} ~=~ L^{e|e}_{0,a;b-a} + \gamma_{a,b} , \qquad 1+(b-a)L^{e|e}_{0,a;b-a} ~=~ \kappa^e\,\frac{Z^{e|e}_{0,a}}{Z^{e|e}_{0,b}} ,
+  \label{eq:cal_future}
+\end{eqnarray}
+where the forward is model-free (\autoref{lemm:coupon_native_forward} for compounded coupons) and $\gamma_{a,b} = \mathrm{Fut}^e_{0,a;b-a} - L^{e|e}_{0,a;b-a}$ is the futures convexity adjustment of \eqref{eq:future}. It depends on the model; as in market practice it is \emph{marked} (an input of the quote, see the footnote of the introduction of this section), not computed from the LGCM. The example SOFR strip uses the Ho--Lee value $\gamma_{a,b} = \frac12\sigma^2ab$ with $\sigma = 95$bp ($0$ to $1.58$bp over $0$--$2$Y).
 \item \emph{FX forwards.} $d$-collateralised, quoted as the outright $x^{df|d}_{0,T}$ or as points $(x^{df|d}_{0,T} - x^{df}_0)\cdot\pi$, with the pip factor $\pi = 10^4$. In the \emph{inverted} quotation the market quotes the reciprocal pair (units of $f$ per unit of $d$, e.g.\ USDJPY in JPY per USD when $d = $ USD and $f = $ JPY): the spot quote is $1/x^{df}_0$, the outright is $1/x^{df|d}_{0,T}$ and the points are $(1/x^{df|d}_{0,T} - 1/x^{df}_0)\cdot\pi$ ($\pi = 100$ for USDJPY). The model state is always $x = x^{df}$, so the model spot is the reciprocal of the quoted spot. This is exact: $1/x^{df|d}_{0,T} = x^{fd}_0Z^{d|d}_{0,T}/Z^{f|d}_{0,T}$ is the $d$-collateralised forward of the inverted pair.
 \item \emph{Resetting CB swaps.} $d$-collateralised, on the schedule $T_j = T_0 + j\theta$, $j = 0,\ldots,n$, with $\theta$ the tenor of the foreign index. With $P_j = Z^{f|d}_{0,T_j}$ and $F_j = Z^{f|f}_{0,T_j}$, the par spread is
 \begin{eqnarray}
@@ -3517,6 +3523,57 @@ The DCB market practice is the case $K_j = 1$ (\texttt{calibrate\_curves(quotes)
 \item Flat forwards are an interpolation choice, not a consequence of the model. They make each bootstrap step a scalar equation, as in the DCB stripping of \autoref{ssec:dd_curve_stripping}, where the unknown is the average forward rate on the segment.
 \item Quotes inside an already built section (e.g.\ a CB swap shorter than the last FX forward) are checks, not targets. On the example market all $31$ linear quotes set a node and there are no checks.
 \item In the example, $\rho^{f,c}<0$ and $K_j>1$ (\autoref{rema:cal_collateral_convexity}): the LGCM curve bootstrapped from the same quotes differs from the DCB curve after the last FX forward.
+\item Futures are bootstrapped like the other linear quotes, before them on the same curve (priority $-1$): each future sets the flat forward up to its end date. Swaps maturing inside the futures strip then become checks (see \autoref{rema:cal_global_vs_bootstrap}).
+\end{enumerate}
+\end{rema}
+
+\subsubsection{Global curve calibration}\label{ssec:cal_global_curves}
+The bootstrap ties the interpolation to the quotes: one node per quote, one scalar equation per node, and piecewise flat forwards, whose jumps at the pillars reach $69$bp on the USD example curve. Current practice separates the two: the curve has its own parametrisation, piecewise flat where the market quotes forward rates directly (futures, FX forwards) and smooth where it quotes long par rates, and all its parameters are fitted together by non-linear least squares. Curves that depend on each other are calibrated as nested curve sets.
+
+\begin{defi}[Hybrid forward curve]\label{defi:cal_hybrid_curve}
+Let $0 = s_0 < s_1 < \ldots < s_m$ (flat nodes, $m\ge1$) and $s_m = k_0 < k_1 < \ldots < k_n$ (spline knots, $n\ge0$). The hybrid curve with parameters $x = (f_1,\ldots,f_m,a_1,\ldots,a_n)$ has the instantaneous forward
+\begin{eqnarray*}
+  r_{0,t} ~=~ f_k \quad (s_{k-1}<t\le s_k), \qquad r_{0,t} ~=~ I'(t) \quad (s_m < t \le k_n), \qquad r_{0,t} ~=~ I'(k_n) \quad (t > k_n),
+\end{eqnarray*}
+where $I$ is the cubic spline on the knots $k_0,\ldots,k_n$ with $I(k_i) = \sum_{j\le i} a_j(k_j-k_{j-1})$, $I'(k_0) = f_m$ and $I''(k_n) = 0$. So $a_i$ is the average forward on the section $(k_{i-1},k_i]$ and $\int_{s_m}^t r_{0,u}du = I(t)$ on the spline section; $-\ln Z_{0,t}$ is explicit everywhere. The forward is piecewise flat on $(0,s_m]$, continuous at $s_m$, piecewise quadratic and $C^1$ on $[s_m,k_n]$ and flat after $k_n$, with $r'_{0,k_n} = 0$, so it is $C^1$ at $k_n$ as well. A cross-currency curve is $Z^{f|d} = Z^{f|f}\,\QZ^{f|f\to d}$ with a hybrid collateral basis curve $\QZ^{f|f\to d}$ (the remark ``Which curve to interpolate'').
+\end{defi}
+
+\begin{prop}[Smooth forward section]\label{prop:cal_smooth_forward}
+Among the $C^2$ functions $J$ on $[k_0,k_n]$ with $J(k_i) = I(k_i)$, $i=0,\ldots,n$, and $J'(k_0) = f_m$, the spline $I$ of Definition~\ref{defi:cal_hybrid_curve} minimises $\int_{k_0}^{k_n}(J'')^2 = \int_{k_0}^{k_n} (r'_{0,t})^2dt$: among the forward curves with the same section averages, continuous at the junction, it has the least squared slope.
+\end{prop}
+
+\begin{proof}
+Let $\phi = J - I$, so $\phi(k_i) = 0$ and $\phi'(k_0) = 0$. Then $\int(J'')^2 = \int(I'')^2 + 2\int I''\phi'' + \int(\phi'')^2$. On $[k_{i-1},k_i]$, $I'''$ is a constant $c_i$, and integrating by parts, $\int_{k_{i-1}}^{k_i} I''\phi'' = [I''\phi']_{k_{i-1}}^{k_i} - c_i[\phi]_{k_{i-1}}^{k_i} = [I''\phi']_{k_{i-1}}^{k_i}$. Summing over $i$ ($I''$ is continuous), $\int I''\phi'' = I''(k_n)\phi'(k_n) - I''(k_0)\phi'(k_0) = 0$ by $I''(k_n) = 0$ and $\phi'(k_0) = 0$. Hence $\int(J'')^2 = \int(I'')^2 + \int(\phi'')^2 \ge \int(I'')^2$.
+\end{proof}
+
+\begin{rema}[Why the spline is on the integrated forward]
+Swap rates identify discount factors, i.e.\ integrals of the forward, not its point values. A cubic spline of the forward through free knot values $r_{0,k_i}$, fitted exactly to the nine USD swaps of the example (natural spline, flat forward to $1$Y), gives the knot values $4.21, 3.11, 3.82, 2.98, 4.58, 2.88, 5.73, 1.33, 9.88\%$ at $1,2,3,5,7,10,15,20,30$Y: the fit is exact and the forward zig-zags. The hybrid curve fitted to the same swaps has forwards $4.21, 3.29, 3.47, 3.56, 3.83, 4.04, 4.07, 3.70, 3.10\%$ at the same dates (\texttt{test\_spline\_through\_forward\_knot\_values\_zig\_zags}). Parametrising by the section averages $a_i$ keeps the parameters close to what the quotes measure, and \autoref{prop:cal_smooth_forward} says what is smooth about the result.
+\end{rema}
+
+\begin{algo}[Nested global curve calibration]\label{algo:cal_global_curves}
+Input: linear quotes (swaps, futures, FX forwards, resetting CB swaps), a pricer that returns $K(T_{j-1},T_j)$ (as in \autoref{algo:cal_curve_bootstrap}), and for each target curve the nodes of Definition~\ref{defi:cal_hybrid_curve}. By default, the flat nodes are the end dates of the futures and the FX forward maturities (or the first pillar if the curve has neither) and the spline knots are the remaining pillars.
+\begin{enumerate}
+\item Group the target curves into \emph{nested curve sets} by dependency level: level $0$ are the curves whose quotes read no other target ($Z^{d|d}$, $Z^{f|f}$), level $\ell$ the curves whose quotes read curves of level $<\ell$ ($Z^{f|d}$, level $1$).
+\item Level by level, with the curves of lower levels frozen, find the parameters $x$ of all the curves of the level by Levenberg--Marquardt on
+\begin{eqnarray*}
+  \min_x \sum_q w_q^2\left(\frac{\text{model}_q(x) - \text{market}_q}{u_q}\right)^2 + \lambda\, 10^8 \sum_{\text{curves}}\int (r'_{0,t})^2\,dt ,
+\end{eqnarray*}
+with $u_q$ = $1$bp for rates and spreads, $0.01$ for futures prices ($1$bp of rate) and $1$ pip for FX forwards, weights $w_q$ ($1$ by default) and a curvature penalty $\lambda\ge0$ ($0$ by default). The penalty is a sum of squares in closed form: $r' = I''$ is linear on each section.
+\item Variant: a single global problem with all the target curves (\texttt{nested=False}).
+\end{enumerate}
+With one quote per parameter and $\lambda = 0$ the problem is square and the fit is exact. With more quotes than parameters (e.g.\ $1$Y and $2$Y swaps inside a $2$Y futures strip) it is a least squares compromise and the residuals are reported. With fewer, a positive $\lambda$ is required. In the LGCM calibration, \autoref{algo:cal_lgcm} uses this algorithm instead of \autoref{algo:cal_curve_bootstrap} in steps 1 and 3 when \texttt{ModelSpec(curves=GlobalFit())}; the fixed point with $\lambda^c$ is unchanged and warm starts each fit from the previous one.
+\end{algo}
+
+\begin{rema}[Global fit against the bootstrap]\label{rema:cal_global_vs_bootstrap}
+Measured on the example markets (\texttt{tests/test\_curve\_fitting.py}).
+\begin{enumerate}
+\item \emph{Two independent algorithms, one curve.} With flat nodes at every pillar and no spline knots, the global fit returns the bootstrapped curves of \autoref{algo:cal_curve_bootstrap} (relative difference of discount factors below $10^{-12}$ up to $40$Y).
+\item \emph{Round trip.} Quotes generated from given hybrid curves for $Z^{d|d}$ (futures and swaps), $Z^{f|f}$ and $\QZ^{f|f\to d}$ (FX forwards and CB swaps) are fitted back to the same parameters ($10^{-11}$) and discount factors ($10^{-12}$ relative), nested or in a single problem.
+\item \emph{Exact fit, smooth forwards.} On the three example markets (DCB) every quote is repriced to $3\cdot10^{-12}$bp (pips for FX forwards), in $9$ to $18$ evaluations of the residuals per level ($1.1$s for EURUSD, against $0.04$s for the bootstrap). The two curves agree at the pillars where the quotes pin the discount factors (the FX forward maturities, and $Z^{d|d}$ at $1$Y and $2$Y). Between and beyond the pillars they differ by the interpolation: in zero rates, hybrid minus bootstrap is $+7.65$, $-0.56$, $+2.59$, $-0.66$, $-5.99$bp for $Z^{d|d}$ at $1.5$, $4$, $25$, $30$, $40$Y. The $40$Y difference is the extrapolation: flat at $r_{0,30}$ for the hybrid curve, flat at the $20$--$30$Y average forward for the bootstrap.
+\item \emph{Futures.} With the SOFR strip and the $1$Y and $2$Y swaps (17 USD quotes, 15 parameters) the bootstrap reprices the futures exactly and leaves the two swaps as checks, $0.050$ and $0.026$bp off. The least squares spreads the inconsistency: residuals $+0.038$ and $+0.019$bp on the swaps, $+0.012$ and $+0.002$bp on the futures of the first and second year (root mean square $0.012$bp), and satisfies the first order conditions $J^\top r = 0$ (checked with a finite difference Jacobian).
+\item \emph{LGCM.} With \texttt{GlobalFit()} the calibration of EURUSD, GBPUSD and USDJPY reprices all 65 quotes (linear quotes to $7\cdot10^{-17}$, FX forwards to $3\cdot10^{-12}$ pips), in $5$ fixed point iterations as with the bootstrap, in $11$s instead of $6$s. The calibrated $\lambda^d$, $\lambda^f$, $\lambda^c$, $\sigma^x$ move by at most $1.2\%$ (the long $\lambda^d$, $\lambda^f$ pieces, whose swaptions see the forwards between pillars). The collateral convexity of the $30$Y $Z^{f|d}$ zero rate (LGCM minus DCB) is $3.76$bp with hybrid curves against $3.75$bp with flat forwards: it is a property of the model, not of the interpolation (the remark ``Interpolation and convexity adjustments decouple in the LGCM'').
+\item \emph{Smoothing.} With more parameters than quotes ($Z^{f|f}$ with $11$ knots for $9$ swaps), the fit fails without penalty and, for $\lambda = 10^{-6}, 10^{-2}, 1$, the roughness decreases and the maximal residual increases monotonically.
+\item \emph{Locality.} The spline is not local. A $1$bp bump of the $10$Y USD swap moves the bootstrapped forward by $+3.69$bp on $(7,10]$Y and $-2.58$bp on $(10,15]$Y (the next section compensates), and by less than $0.02$bp elsewhere. It moves the hybrid forward on every section: $+0.10$bp at $4$Y, $-0.36$bp at $6$Y, $+4.57$bp at $8.5$Y, $-3.19$bp at $12$Y, $-0.16$bp at $25$Y. Smoothness is paid for with less local hedge ratios. The figures of this remark are measurements on these curves, not theorems.
 \end{enumerate}
 \end{rema}
 

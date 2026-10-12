@@ -336,6 +336,10 @@ def mc_report(cal, n_paths=2**16, seed=1, quotes=None, dt=0.25, timings=None, co
     coupon is compounded with this step on the paths AND in the model (with_compounding_step); the
     column `market` stays the quote (calibrated with the index's own step)."""
     quotes = cal.quotes.quotes if quotes is None else quotes
+    futures = [q.instrument.label for q in quotes if type(q.instrument) not in _MC]
+    if futures:
+        raise ValueError(f"no Monte Carlo valuation for {futures}: the futures convexity adjustment is marked, "
+                         "not a model quantity; pass quotes= without them")
     if compounding_step is not None:
         cal = with_compounding_step(cal, compounding_step)
     s = cal.curves.setup

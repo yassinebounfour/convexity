@@ -99,6 +99,43 @@ class Swap(Instrument):
 
 
 @dataclass(frozen=True)
+class RateFuture(Instrument):
+    """Short rate future on the index over [start, end] under native collateral (e.g. 3M SOFR), quoted as
+    a price 100 (1 - R_fut). The futures rate is the native forward plus a marked convexity adjustment:
+        R_fut = L^{e|e}_{0,start;end-start} + convexity,   1 + (end - start) L = kappa Z_start / Z_end,
+    which for a compounded OIS index is the forward of the compounded coupon (Lemma "native forward of a
+    compounded coupon"). The adjustment E^{RN}[L] - L^{e|e} of eq. (future) is model dependent; as in
+    market practice it is marked externally (`convexity`, in rate units), not computed from the model."""
+    index: object
+    start: float
+    end: float
+    convexity: float = 0.0
+    priority = -1
+
+    def __post_init__(self):
+        if not 0 <= self.start < self.end:
+            raise ValueError(f"future period [{self.start}, {self.end}] must satisfy 0 <= start < end")
+
+    @property
+    def pillar(self):
+        return self.end
+
+    @property
+    def label(self):
+        return f"{self.index.name} future {_fmt(self.start)}-{_fmt(self.end)}"
+
+    def target(self, setup):
+        return DiscountCurveKey(self.index.currency, setup.collateral_of(self.index.currency).name)
+
+    def rate(self, pricer):
+        key = ForwardCurveKey(self.index.name, pricer.setup.collateral_of(self.index.currency).name)
+        return pricer.forward_rate(key, self.start, self.end) + self.convexity
+
+    def quote(self, pricer):
+        return 100.0 * (1.0 - self.rate(pricer))
+
+
+@dataclass(frozen=True)
 class FXForward(Instrument):
     """FX forward on the model pair (units of domestic per foreign) under domestic collateral:
     x^{df|d}_{0,T} = x_0 Z^{f|d}_{0,T} / Z^{d|d}_{0,T}. quotation "outright" or "points" = (F - x_0) pip_factor.

@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.interpolate import CubicSpline
 
 from .market import Coupon, LIBOR
 
@@ -129,6 +130,98 @@ class PiecewiseFlatCurve(Curve):
 
     def Z(self, T):
         return _out(np.exp(-self.integral(T)), T)
+
+
+class HybridCurve(Curve):
+    """Instantaneous forward curve, piecewise flat at the short end and smooth at the long end.
+
+    Short end: flat forwards f_k on (s_{k-1}, s_k], s_0 = 0, k = 1..m (`flat_nodes` s_1 < ... < s_m).
+    Long end, on [s_m, k_n] (`spline_knots` s_m < k_1 < ... < k_n): the integrated forward
+    I(T) = int_{s_m}^T r_{0,u} du is the cubic spline through (s_m, 0), (k_i, sum_{j<=i} a_j (k_j - k_{j-1})),
+    where a_i is the AVERAGE forward on the section (k_{i-1}, k_i] (k_0 = s_m), with I'(s_m) = f_m (the
+    forward is continuous at the junction) and I''(k_n) = 0 (natural). The forward r = I' is piecewise
+    quadratic and C^1 on [s_m, k_n], and flat (= r(k_n)) after k_n, so it is C^1 there too. Among the C^2
+    functions with these section integrals and end conditions, I minimises int (I'')^2 = int (r')^2.
+    Parameters: x = (f_1, ..., f_m, a_1, ..., a_n), all in units of a rate. Without spline knots this is a
+    PiecewiseFlatCurve. At least one flat node is required.
+
+    (A cubic spline of the forward through free knot values is NOT used: swap rates identify integrals
+    of the forward, not its point values, and the fitted knot values zig-zag, e.g. 4.2, 3.1, 3.8, 3.0,
+    4.6, 2.9, 5.7, 1.5, 6.6 % on the USD example curve.)
+    """
+
+    def __init__(self, flat_nodes, spline_knots=(), params=None):
+        self.flat_nodes = np.asarray(flat_nodes, float)
+        self.spline_knots = np.asarray(spline_knots, float)
+        if len(self.flat_nodes) == 0:
+            raise ValueError("HybridCurve needs at least one flat node")
+        nodes = np.r_[0.0, self.flat_nodes, self.spline_knots]
+        if np.any(np.diff(nodes) <= 0):
+            raise ValueError("flat nodes then spline knots must be positive and increasing")
+        self.set_params(np.zeros(self.n_params) if params is None else params)
+
+    @property
+    def n_params(self):
+        return len(self.flat_nodes) + len(self.spline_knots)
+
+    @property
+    def junction(self):
+        return float(self.flat_nodes[-1])
+
+    @property
+    def last_node(self):
+        return float(self.spline_knots[-1]) if len(self.spline_knots) else self.junction
+
+    def set_params(self, x):
+        x = np.asarray(x, float)
+        if x.shape != (self.n_params,):
+            raise ValueError(f"expected {self.n_params} parameters, got {x.shape}")
+        self.params = x.copy()
+        m = len(self.flat_nodes)
+        f = x[:m]
+        left = np.r_[0.0, self.flat_nodes[:-1]]
+        self._flat_cum = np.r_[0.0, np.cumsum(f * (self.flat_nodes - left))]
+        self._spline = None
+        if len(self.spline_knots):
+            t = np.r_[self.junction, self.spline_knots]
+            I = np.r_[0.0, np.cumsum(x[m:] * np.diff(t))]
+            self._spline = CubicSpline(t, I, bc_type=((1, f[-1]), (2, 0.0)))
+            self._r_end = float(self._spline(self.last_node, 1))
+
+    def instantaneous_forward(self, T):
+        T = np.asarray(T, float)
+        m = len(self.flat_nodes)
+        k = np.minimum(np.searchsorted(self.flat_nodes, T, side="left"), m - 1)
+        out = self.params[k]
+        if self._spline is not None:
+            out = np.where(T > self.junction, self._spline(np.clip(T, self.junction, self.last_node), 1), out)
+        return _out(out, T)
+
+    def integral(self, T):
+        T = np.asarray(T, float)
+        f, s = self.params[:len(self.flat_nodes)], self.flat_nodes
+        left = np.r_[0.0, s[:-1]]
+        k = np.minimum(np.searchsorted(s, T, side="left"), len(s) - 1)
+        flat = self._flat_cum[k] + f[k] * (np.minimum(T, s[-1]) - left[k])
+        if self._spline is None:
+            return flat + f[-1] * np.maximum(T - s[-1], 0.0)
+        Tc = np.clip(T, self.junction, self.last_node)
+        spline = self._spline(Tc) + self._r_end * np.maximum(T - self.last_node, 0.0)
+        return flat + np.where(T > self.junction, spline, 0.0)
+
+    def Z(self, T):
+        return _out(np.exp(-self.integral(T)), T)
+
+    def roughness(self):
+        """int (r')^2 over the spline section as r^T r for a vector r(x) (residuals of a smoothing
+        penalty): r' = I'' is linear on each spline interval [a, b] with end values u, v, and
+        int_a^b (r')^2 = h (u^2 + u v + v^2) / 3 = h/3 (u + v/2)^2 + h/4 v^2, h = b - a."""
+        if self._spline is None:
+            return np.zeros(0)
+        t = self._spline.x
+        d2 = self._spline(t, 2)
+        h, u, v = np.diff(t), d2[:-1], d2[1:]
+        return np.r_[np.sqrt(h / 3) * (u + v / 2), np.sqrt(h) / 2 * v]
 
 
 class SpreadCurve(Curve):

@@ -9,12 +9,12 @@
 
 The numbers are rounded, plausible and illustrative of the kind of levels seen on a broker screen:
 they are NOT live data. Units: rates and spreads in decimals, FX forward points in pips (1e-4; 1e-2 for
-USDJPY), vols in decimals (normal vols: 0.0100 = 100 bp/year). In the dictionaries rates are in percent,
+USDJPY), futures as prices 100 (1 - R), vols in decimals (normal vols: 0.0100 = 100 bp/year). In the dictionaries rates are in percent,
 basis, swaption and CB vols in bp, FX vols in percent.
 """
 from .curves import Index, LGCMSetup
-from .instruments import (CurrencyBasisSwaption, FXForward, FXOption, MarketQuotes, Quote, ResettingCCS, Swap,
-                          Swaption)
+from .instruments import (CurrencyBasisSwaption, FXForward, FXOption, MarketQuotes, Quote, RateFuture, ResettingCCS,
+                          Swap, Swaption)
 
 SOFR = Index("USD_SOFR", "USD")
 ESTR = Index("EUR_ESTR", "EUR")
@@ -41,6 +41,12 @@ FX_VOL = {1 / 12: 7.0, 0.25: 7.2, 0.5: 7.4, 1: 7.6, 2: 7.9, 3: 8.1, 5: 8.5, 7: 8
 CB_VOL_BP = {1: 9.0, 2: 9.5, 3: 10.0, 5: 10.0, 7: 10.0, 10: 9.5, 15: 9.0, 20: 8.5}
 SWAPTION_TENOR, CB_VOL_TENOR = 10.0, 1.0
 
+# 3M SOFR futures strip over 0-2Y: start -> (price, marked convexity adjustment in bp). Built from forwards
+# 3.137% + 1.737% exp(-t) (t the mid period), which reprice the 1Y and 2Y SOFR swaps, plus the adjustment
+# sigma^2 a b / 2 (Ho-Lee, sigma = 95 bp), rounded to the 0.0025 tick: about 0.1 bp off the swaps.
+SOFR_FUTURES = {0.0: (95.33, 0.0), 0.25: (95.6675, 0.06), 0.5: (95.93, 0.17), 0.75: (96.135, 0.34),
+                1.0: (96.2925, 0.56), 1.25: (96.415, 0.85), 1.5: (96.51, 1.18), 1.75: (96.58, 1.58)}
+
 
 
 
@@ -62,8 +68,10 @@ JPY_FX_VOL = {1 / 12: 9.5, 0.25: 9.8, 0.5: 10.0, 1: 10.2, 2: 10.4, 3: 10.6, 5: 1
 JPY_CB_VOL_BP = {1: 10.0, 2: 11.0, 3: 12.0, 5: 13.0, 7: 13.0, 10: 12.0, 15: 11.0, 20: 10.0}
 
 
-def _market(setup, swaps, spot, points, ccs, swaptions, fx_vol, cb_vol, fidx, inverted=False, pip=1e4):
+def _market(setup, swaps, spot, points, ccs, swaptions, fx_vol, cb_vol, fidx, inverted=False, pip=1e4, futures=False):
     q = [Quote(Swap(SOFR, T), r / 100) for T, r in USD_SWAPS.items()]
+    if futures:
+        q += [Quote(RateFuture(SOFR, a, a + 0.25, ca / 1e4), p) for a, (p, ca) in SOFR_FUTURES.items()]
     q += [Quote(Swap(fidx, T), r / 100) for T, r in swaps.items()]
     q += [Quote(FXForward(T, "points", pip, inverted), p) for T, p in points.items()]
     q += [Quote(ResettingCCS(T), b / 1e4) for T, b in ccs.items()]
@@ -74,14 +82,16 @@ def _market(setup, swaps, spot, points, ccs, swaptions, fx_vol, cb_vol, fidx, in
     return MarketQuotes(setup, spot, q, inverted)
 
 
-def example_quotes(market="EURUSD"):
-    """Quotes of one of MARKETS (default EURUSD, the original example)."""
+def example_quotes(market="EURUSD", futures=False):
+    """Quotes of one of MARKETS (default EURUSD, the original example). futures=True adds the SOFR
+    futures strip SOFR_FUTURES (the 1Y and 2Y SOFR swaps are kept)."""
     if market == "EURUSD":
-        return _market(example_setup(), EUR_SWAPS, 1.10, FX_POINTS, CCS_BP, EUR_SWAPTION_BP, FX_VOL, CB_VOL_BP, EURIBOR3M)
+        return _market(example_setup(), EUR_SWAPS, 1.10, FX_POINTS, CCS_BP, EUR_SWAPTION_BP, FX_VOL, CB_VOL_BP, EURIBOR3M,
+                       futures=futures)
     if market == "GBPUSD":
         return _market(LGCMSetup(SOFR, SONIA), GBP_SWAPS, 1.27, GBP_FX_POINTS, GBP_CCS_BP, GBP_SWAPTION_BP,
-                       GBP_FX_VOL, GBP_CB_VOL_BP, SONIA)
+                       GBP_FX_VOL, GBP_CB_VOL_BP, SONIA, futures=futures)
     if market == "USDJPY":
         return _market(LGCMSetup(SOFR, TONA), JPY_SWAPS, JPY_SPOT, JPY_FX_POINTS, JPY_CCS_BP, JPY_SWAPTION_BP,
-                       JPY_FX_VOL, JPY_CB_VOL_BP, TONA, inverted=True, pip=100.0)
+                       JPY_FX_VOL, JPY_CB_VOL_BP, TONA, inverted=True, pip=100.0, futures=futures)
     raise ValueError(f"unknown market {market!r}, expected one of {MARKETS}")
