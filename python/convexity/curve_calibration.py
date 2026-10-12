@@ -8,7 +8,8 @@ curve is not used, and is reported as a check. Native discount curves have flat 
 off native collateral is Z^{e|e} times a flat-forward collateral basis curve (Remark "Which curve to
 interpolate" in the notes).
 
-The model only enters through the pricer (Libor collateral convexities of the resetting CCS):
+The model only enters through the pricer (collateral convexities of the foreign coupon of the
+resetting CCS, Libor or compounded):
 DeterministicPricer is the DCB market practice, LGCMPricer the LGCM.
 """
 from dataclasses import dataclass, field
@@ -106,6 +107,6 @@ def bootstrap(quotes, curves, pricer, targets=None, report=None):
 def calibrate_curves(quotes, pricer_factory=DeterministicPricer):
     """Discount curves of all targets of the linear quotes. Default: DCB model (no convexity, no vols).
     pricer_factory(curves) -> Pricer, e.g. lambda c: LGCMPricer(model, c)."""
-    curves = CurveSet(quotes.setup, quotes.fx_spot)
+    curves = CurveSet(quotes.setup, quotes.x0)
     report = bootstrap(quotes, curves, pricer_factory(curves))
     return curves, report

@@ -34,11 +34,14 @@ class Simulator:
             raise ValueError("n_paths must be even with antithetic sampling")
         return self.scheme.simulate(self, T, n_paths, np.random.default_rng(seed), antithetic)
 
-    def simulate_dates(self, dates, n_paths, seed=0, antithetic=True):
-        """State at every date of `dates` along the same paths (PathStates, looked up by date)."""
+    def simulate_dates(self, dates, n_paths, seed=0, antithetic=True, stream=(), on_date=None):
+        """State at every date of `dates` along the same paths (PathStates, looked up by date). The dates of
+        `stream` are simulated but not stored; on_date(res) sees every date of both, in increasing order
+        (ExactScheme.simulate_dates)."""
         if antithetic and n_paths % 2:
             raise ValueError("n_paths must be even with antithetic sampling")
-        return self.scheme.simulate_dates(self, dates, n_paths, np.random.default_rng(seed), antithetic)
+        return self.scheme.simulate_dates(self, dates, n_paths, np.random.default_rng(seed), antithetic,
+                                          stream, on_date)
 
     # ------------------------------------------------------------------ reconstruction
     def lnZ(self, res, kind, T):

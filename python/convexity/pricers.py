@@ -1,7 +1,7 @@
 """Pricers: the model view of the calibration instruments.
 
 Pricer               curves, forward rates and the interface for option quotes
-DeterministicPricer  deterministic collateral basis (DCB) model: Libor collateral convexity K = 1,
+DeterministicPricer  deterministic collateral basis (DCB) model: collateral convexity K = 1,
                      no volatility (option quotes raise NotImplementedError)
 LGCMPricer           LGCM closed forms: exact one-factor swaptions, Gaussian multi-factor variance, CB and FX vols
 """
@@ -13,7 +13,7 @@ from scipy.stats import norm
 
 from . import gaussian_approx as ga
 from .curves import DiscountCurveKey
-from .market import libor_convexity, fx_total_variance
+from .market import LIBOR, fx_total_variance
 
 
 class Pricer:
@@ -24,8 +24,14 @@ class Pricer:
     def setup(self):
         return self.curves.setup
 
+    def coupon_convexity(self, a, b):
+        """K of the foreign index coupon (curves.coupon("f")) on [a, b], seen from 0:
+        E^{f|d}[C] / E^{f|f}[C] (Libor: (1 + theta L^{f|d}_{0,a}) / (1 + theta L^{f|f}_{0,a}))."""
+        raise NotImplementedError
+
     def libor_convexity(self, a, b):
-        """K = (1 + theta L^{f|d}_{0,a}) / (1 + theta L^{f|f}_{0,a}) for the foreign index on [a, b]."""
+        """Libor K on [a, b] seen from 0. Only meaningful when the foreign coupon is Libor; kept for
+        callers that ask for the Libor K explicitly."""
         raise NotImplementedError
 
     def forward_rate(self, key, a, b):
@@ -38,7 +44,7 @@ class Pricer:
         if key.collateral != native.collateral:
             if (idx.currency, key.collateral) != (s.foreign, s.domestic_collateral.name):
                 raise NotImplementedError(f"{key}: only the foreign index under domestic collateral")
-            ratio *= self.libor_convexity(a, b)
+            ratio *= self.coupon_convexity(a, b)
         return (ratio - 1.0) / (b - a)
 
     def _no_vol(self, inst):
@@ -56,6 +62,9 @@ class Pricer:
 
 class DeterministicPricer(Pricer):
     """Deterministic collateral basis model: no convexity adjustment, no option quotes."""
+
+    def coupon_convexity(self, a, b):
+        return 1.0
 
     def libor_convexity(self, a, b):
         return 1.0
@@ -115,13 +124,19 @@ class LGCMPricer(Pricer):
         m = self.model
         return hash(tuple(a.tobytes() for a in m.sig + m.beta) + (m.R.tobytes(),))
 
-    def libor_convexity(self, a, b):
+    def _cached_K(self, coupon, a, b):
         v = self._version()
         if v != self._v:
             self._K, self._v = {}, v
-        if (a, b) not in self._K:
-            self._K[(a, b)] = libor_convexity(self.model, 0.0, a, b)
-        return self._K[(a, b)]
+        if (coupon, a, b) not in self._K:     # keyed on the coupon: Libor and RFR values never mix
+            self._K[(coupon, a, b)] = coupon.convexity(self.model, 0.0, a, b)
+        return self._K[(coupon, a, b)]
+
+    def coupon_convexity(self, a, b):
+        return self._cached_K(self.curves.coupon("f"), a, b)
+
+    def libor_convexity(self, a, b):
+        return self._cached_K(LIBOR, a, b)
 
     def swaption_normal_vol(self, swaption):
         u = swaption.underlying

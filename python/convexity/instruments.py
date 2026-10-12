@@ -3,7 +3,8 @@
 An Instrument is pure data: it declares what it calibrates (`target`: a CurveKey for linear
 instruments, a model block "d", "f", "c" or "x" for options), its `pillar` and the curves it reads
 besides its target (`dependencies`), and computes its model quote from a Pricer (`quote`). Linear
-instruments are priced from the curves and the Libor collateral convexities given by the pricer;
+instruments are priced from the curves and the collateral convexities of the foreign
+coupon (Libor or compounded) given by the pricer;
 options delegate to the pricer. Values are in the instrument's quotation: par rate, FX outright or
 points, CB spread, normal vol (swaptions, CB spreads) or Black vol (FX).
 
@@ -100,10 +101,14 @@ class Swap(Instrument):
 @dataclass(frozen=True)
 class FXForward(Instrument):
     """FX forward on the model pair (units of domestic per foreign) under domestic collateral:
-    x^{df|d}_{0,T} = x_0 Z^{f|d}_{0,T} / Z^{d|d}_{0,T}. quotation "outright" or "points" = (F - x_0) pip_factor."""
+    x^{df|d}_{0,T} = x_0 Z^{f|d}_{0,T} / Z^{d|d}_{0,T}. quotation "outright" or "points" = (F - x_0) pip_factor.
+    With `inverted` the market quotes the reciprocal pair (units of foreign per domestic, e.g. USDJPY
+    with d = USD, f = JPY): outright 1/F, points (1/F - 1/x_0) pip_factor. `to_outright` and `quoted`
+    convert between the quote and the model outright F (x_0 the model spot)."""
     maturity: float
     quotation: str = "outright"
     pip_factor: float = 1e4
+    inverted: bool = False
 
     def __post_init__(self):
         if self.quotation not in ("outright", "points"):
@@ -115,7 +120,8 @@ class FXForward(Instrument):
 
     @property
     def label(self):
-        return f"FX forward {_fmt(self.maturity)}" + (" (points)" if self.quotation == "points" else "")
+        tags = ([self.quotation] if self.quotation == "points" else []) + (["inverted"] if self.inverted else [])
+        return f"FX forward {_fmt(self.maturity)}" + (f" ({', '.join(tags)})" if tags else "")
 
     def target(self, setup):
         return setup.key("fd")
@@ -127,9 +133,19 @@ class FXForward(Instrument):
         s, c = pricer.setup, pricer.curves
         return c.x0 * c.Z(s.key("fd"), self.maturity) / c.Z(s.key("dd"), self.maturity)
 
+    def quoted(self, F, x0):
+        """Quote (in the quoted convention) of the model outright F."""
+        out, spot = (1.0 / F, 1.0 / x0) if self.inverted else (F, x0)
+        return out if self.quotation == "outright" else (out - spot) * self.pip_factor
+
+    def to_outright(self, value, x0):
+        """Model outright F implied by a quote."""
+        spot = 1.0 / x0 if self.inverted else x0
+        out = value if self.quotation == "outright" else spot + value / self.pip_factor
+        return 1.0 / out if self.inverted else out
+
     def quote(self, pricer):
-        F = self.outright(pricer)
-        return F if self.quotation == "outright" else (F - pricer.curves.x0) * self.pip_factor
+        return self.quoted(self.outright(pricer), pricer.curves.x0)
 
 
 @dataclass(frozen=True)
@@ -138,7 +154,7 @@ class ResettingCCS(Instrument):
     foreign index tenor: foreign index + B against the domestic index on a notional reset at each fixing.
         B = sum_j P_j (1 + theta L^r_j - (1 + theta L^{f|d}_j)) / (theta sum_j P_j),  P_j = Z^{f|d}_{0,T_j},
         1 + theta L^r_j = kappa^d P_{j-1}/P_j,  1 + theta L^{f|d}_j = kappa^f Z^{f|f}_{j-1}/Z^{f|f}_j K_j,
-    K_j the Libor collateral convexity given by the pricer."""
+    K_j the collateral convexity of the foreign coupon (Libor or compounded) given by the pricer."""
     end: float
     start: float = 0.0
     priority = 1
@@ -208,7 +224,10 @@ class Swaption(Instrument):
 
 @dataclass(frozen=True)
 class FXOption(Instrument):
-    """ATM FX option at `expiry`, quoted as a Black vol (collateral free in the LGCM)."""
+    """ATM FX option at `expiry`, quoted as a Black vol (collateral free in the LGCM). Unchanged by
+    inverting the quoted pair: ln x_T is Gaussian, so 1/x_T is lognormal with the same total variance
+    and the ATM Black vol of 1/x equals that of x (proved in the notes; checked by quadrature in
+    test_fx_option_vol_is_invariant_under_inversion)."""
     expiry: float
 
     @property
@@ -265,8 +284,24 @@ class Quote:
 @dataclass
 class MarketQuotes:
     setup: object
-    fx_spot: float
+    fx_spot: float          # the QUOTED spot (units of foreign per domestic if fx_inverted)
     quotes: list
+    fx_inverted: bool = False
+
+    def __post_init__(self):
+        """The spot and every FX forward must be quoted in the same convention: a mismatch is otherwise
+        not detected by the curve calibration (EURUSD with only fx_inverted flipped calibrates, with the
+        Z^{f|d} zero rate off by about -43 bp at 0.5Y)."""
+        bad = [q.instrument.label for q in self.quotes
+               if isinstance(q.instrument, FXForward) and q.instrument.inverted != self.fx_inverted]
+        if bad:
+            raise ValueError(f"FX spot quoted with fx_inverted={self.fx_inverted} but forwards {bad} have "
+                             f"inverted={not self.fx_inverted}: quote the spot and forwards in the same convention")
+
+    @property
+    def x0(self):
+        """Model spot: units of domestic per unit of foreign."""
+        return 1.0 / self.fx_spot if self.fx_inverted else self.fx_spot
 
     def of_type(self, *types):
         return [q for q in self.quotes if isinstance(q.instrument, types)]

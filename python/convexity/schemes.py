@@ -69,8 +69,8 @@ class MCScheme(ABC):
     def simulate(self, sim, T, n_paths, rng, antithetic) -> SimResult:
         """Simulate the state of `sim` (a Simulator) from 0 to T."""
 
-    def simulate_dates(self, sim, dates, n_paths, rng, antithetic) -> PathStates:
-        """Joint state at every date of `dates` along the same paths."""
+    def simulate_dates(self, sim, dates, n_paths, rng, antithetic, stream=(), on_date=None) -> PathStates:
+        """Joint state at every date of `dates` along the same paths (`stream`, `on_date`: see ExactScheme)."""
         raise NotImplementedError(f"{type(self).__name__} does not record intermediate dates")
 
 
@@ -160,23 +160,31 @@ class ExactScheme(MCScheme):
         vd = np.broadcast_to(m.vfc(T), (P, nr))
         return SimResult(T, X[:, :nr], X[:, ixs["iZX"]], Yd, vd, X[:, ixs["iID"]], X[:, ixs["iIQ"]], antithetic)
 
-    def simulate_dates(self, sim, dates, P, rng, antithetic):
+    def simulate_dates(self, sim, dates, P, rng, antithetic, stream=(), on_date=None):
         """Joint state at every date of `dates` (>= 0) along the same paths. The grid is the grid of
         `simulate` up to the last date refined with the dates; the transitions are exact, so the law
         at each date is that of `simulate` and the joint law is that of the Gaussian Markov state.
-        The state layout (z, z^x, int r^d, int q) is read from the indices of transitions.transition."""
+        The state layout (z, z^x, int r^d, int q) is read from the indices of transitions.transition.
+
+        Streaming: the dates of `stream` are simulated (they refine the grid like `dates`) but not stored;
+        `on_date(res)`, if given, is called with the state at every date of dates and stream, in
+        increasing order (each date once, dates closer than 1e-10 merged). A streamed state is a view of
+        the current state: copy what must outlive the call. The grid, hence the draws, only depends on
+        the union of dates and stream."""
         if not sim.is_lgcm:
             raise ValueError("the exact scheme only applies to the LGCM (kappa = 0)")
         dates = np.unique(np.asarray(dates, float))
-        if dates.size == 0:
+        alld = np.unique(np.r_[dates, np.asarray(stream, float)])
+        if alld.size == 0:
             raise ValueError("simulate_dates needs at least one date")
-        if dates[0] < 0:
+        if alld[0] < 0:
             raise ValueError("dates must be >= 0")
         m, nr = sim.m, sim.m.nr
         want = {PathStates.key(t) for t in dates}
-        g = self.grid(m, max(dates[-1], 1e-10))
-        near = np.abs(g[:, None] - dates[None, :]).min(1) < 1e-10      # grid points that are dates up to 1e-10
-        g = np.union1d(g[~near], dates)
+        seen = {PathStates.key(t) for t in alld}
+        g = self.grid(m, max(alld[-1], 1e-10))
+        near = np.abs(g[:, None] - alld[None, :]).min(1) < 1e-10      # grid points that are dates up to 1e-10
+        g = np.union1d(g[~near], alld)
         g = g[np.concatenate([[True], np.diff(g) > 1e-10])]
         steps = [transitions.transition(m, t0, t1, "RN") for t0, t1 in zip(g[:-1], g[1:])]
         # only t = 0 requested (no step): the layout is that of any transition
@@ -184,16 +192,24 @@ class ExactScheme(MCScheme):
         X = np.zeros((P, ixs["n"]))
         out = PathStates()
 
-        def record(t, X):
+        def visit(t, X):
+            key = PathStates.key(t)
+            if key not in seen:
+                return
+            seen.discard(key)
+            keep = key in want
+            cp = (lambda a: a.copy()) if keep else (lambda a: a)
             Yd = np.broadcast_to(m.Y(t), (P, nr, nr))
             vd = np.broadcast_to(m.vfc(t), (P, nr))
-            out[PathStates.key(t)] = SimResult(float(t), X[:, :nr].copy(), X[:, ixs["iZX"]].copy(), Yd, vd,
-                                               X[:, ixs["iID"]].copy(), X[:, ixs["iIQ"]].copy(), antithetic)
-        if 0.0 in want:
-            record(0.0, X)
+            res = SimResult(float(t), cp(X[:, :nr]), cp(X[:, ixs["iZX"]]), Yd, vd,
+                            cp(X[:, ixs["iID"]]), cp(X[:, ixs["iIQ"]]), antithetic)
+            if keep:
+                out[key] = res
+            if on_date is not None:
+                on_date(res)
+        visit(0.0, X)
         for t1, (F, mu, C, _) in zip(g[1:], steps):
             w, U = np.linalg.eigh(C)                 # C may be singular (no noise on L)
             X = X @ F.T + mu + self.normals(rng, P, ixs["n"], antithetic) @ (U * np.sqrt(np.clip(w, 0, None))).T
-            if PathStates.key(t1) in want:
-                record(t1, X)
+            visit(t1, X)
         return out

@@ -247,7 +247,9 @@ FVA is defined as the cost of hedging a non-collateralised trade with collateral
 %\item 
 \end{enumerate}
 
-Appendices contain details of mathematical proofs. 
+Appendices contain details of mathematical proofs.
+
+Floating coupons are either Libor-type (fixed at the start of the accrual period) or compounded overnight (RFR) coupons, which replaced Libor in GBP, JPY, CHF and USD. Both are treated alongside throughout (coupon factors \eqref{eq:coupon_factors}). Under native collateral every coupon type is model-free (\autoref{lemm:coupon_native_forward}). Under non-native collateral the collateral convexity of a compounded coupon has an extra in-arrears term (\autoref{prop:coupon_collateral_convexity} and \autoref{prop:coupon_continuous_error}); in the examples of these notes it changes $\ln K$ by $10^{-8}$ to $10^{-7}$ per quarterly period and the calibrated curves by about $0.001$bp (\autoref{rema:cal_libor_vs_rfr}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Risk neutral pricing under perfect collateral
@@ -386,7 +388,21 @@ The measure associated with this num\'{e}raire is denoted by $\QQ^{e|i,T}$. The 
   	L^{e|i}_{t,T;\theta}	&=& \EE^{e|i,T+\theta}_t \left[L^e_{T;\theta}\right] 
 \label{eq:forward_libor}
 \end{eqnarray} 
-where $L^e_{T;\theta}$ is the value of the Libor index with tenor $\theta$, fixing as $T$ and paid at $T+\theta$. 
+where $L^e_{T;\theta}$ is the value of the Libor index with tenor $\theta$, fixing as $T$ and paid at $T+\theta$.
+\item Coupon factors. Since the Libor transition, GBP, JPY, CHF and USD swaps and cross-currency swaps pay compounded overnight (RFR) coupons (SONIA, TONA, SARON, SOFR, ESTR) instead of Libor-type coupons. A floating coupon of currency $e$ on the accrual period $[a,b]$, $\theta = b-a$, paid at $b$, is $C^e_{a,b} - 1$ (plus a spread $\theta s$, added simply), where the \emph{coupon factor} $C^e_{a,b}$ is one of:
+\begin{eqnarray}
+  C^{e,\mathrm{L}}_{a,b} &=& 1+\theta L^e_{a;\theta} \qquad\qquad\qquad\qquad\qquad\quad \textrm{(Libor, fixed at $a$)}, \nonumber\\
+  C^{e,\delta}_{a,b} &=& \prod_{k=0}^{n-1}\left(1+\delta_k R^{e|e}_{t_k,t_k;\delta_k}\right) ~=~ \prod_{k=0}^{n-1}\frac{1}{Z^{e|e}_{t_k,t_{k+1}}} \qquad \textrm{(daily compounding, exact)}, \label{eq:coupon_factors}\\
+  C^{e,0}_{a,b} &=& \exp\left(\int_a^b r^{e|e}_u\,du\right) \qquad\qquad\qquad\qquad\quad \textrm{(continuous compounding)}. \nonumber
+\end{eqnarray}
+Here $a = t_0 < t_1 < \ldots < t_n = b$ is the overnight grid, with steps $\delta_k = t_{k+1}-t_k = \delta$ except the last one, which is shortened to land on $b$ ($\delta = 1/365$ by default; day counts and calendars are out of scope), and the overnight fixing at $t_k$ is the one-step simple rate of the native curve, $1+\delta_kR^{e|e}_{t_k,t_k;\delta_k} = 1/Z^{e|e}_{t_k,t_{k+1}}$. The Libor factor is the one-step case $n=1$ times the funding spread: $C^{e,\mathrm{L}}_{a,b} = \kappa^e/Z^{e|e}_{a,b}$ under the constant funding spread hypothesis \eqref{eq:constant_funding_spread} ($\kappa^e = 1-\theta S^{e|e,\div}$). The continuous factor is the limit of the daily one as $\delta\to0$; it is an approximation of the traded coupon, whose error is quantified in \autoref{prop:coupon_continuous_error}. Payment lags, lookbacks, lockouts and observation shifts are out of scope.
+
+We keep the notation of forward Libors for the forward of any coupon factor: under collateral $i$,
+\begin{eqnarray}
+  1+\theta L^{e|i}_{t,a;\theta} &:=& \EE^{e|i,b}_t\left[C^e_{a,b}\right] ,
+  \label{eq:forward_coupon}
+\end{eqnarray}
+which is \eqref{eq:forward_libor} for a Libor coupon. So the formulas below for swaps and cross-currency swaps hold for both coupon types, with the coupon convexity of the coupon type (\autoref{prop:coupon_collateral_convexity}).
 \item Futures. A future contract is economically equivalent to a FRA with domestic collateral earning a collateral rate of zero:
 \begin{eqnarray}
   \mathrm{Fut}^{e}_{t,T;\theta} &=& \EE^{e,\RN}_t \left[L^e_{T;\theta}\right] .
@@ -611,9 +627,13 @@ For every currency $e$ and tenor $\theta$, the native multiplicative funding spr
   1 - \theta S^{e|e,\div}_{t,T;\theta} &=& \frac{1+\theta L^{e|e}_{t,T;\theta}}{1+\theta R^{e|e}_{t,T;\theta}}  
   \label{eq:constant_funding_spread}
 \end{eqnarray} 
-is constant. 
+is constant.
 \end{hypo}
 From now on, we will assume the constant funding spreads hypothesis holds.
+
+\begin{rema}[Compounded overnight coupons need no hypothesis]\label{rema:rfr_no_funding_spread}
+The hypothesis is about Libor-type indices. A compounded overnight coupon \eqref{eq:coupon_factors} is a product of one-step discount rates of the native curve, so it has no funding spread: under native collateral its forward is $Z^{e|e}_{t,a}/Z^{e|e}_{t,b}$ in any arbitrage free model (\autoref{lemm:coupon_native_forward}), i.e.\ $\kappa^e = 1$ exactly.
+\end{rema}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Deterministic model
@@ -997,6 +1017,27 @@ Similarly to FX-forwards, this suggests that the Libor volatility is independent
 \end{rema}
 
 
+\subsubsection{Compounded overnight coupons}
+
+\begin{lemm}[Native forward of a coupon factor]\label{lemm:coupon_native_forward}
+Let $C^e_{a,b}$ be a daily compounded coupon factor \eqref{eq:coupon_factors} on the grid $a = t_0<\ldots<t_n = b$ and $t\le b$. Write $t_* = \min\{t_k : t_k > t\}$ (with $t_* = b$ if there is none) and $A_t = \prod_{k:\,t_k\le t,\ k<n} 1/Z^{e|e}_{t_k,t_{k+1}}$ for the part of the coupon fixed at $t$ (so $A_t = 1$ and $t_* = a$ if $t<a$). Then, in any arbitrage free model,
+\begin{eqnarray}
+  \EE^{e|e,b}_t\left[C^{e,\delta}_{a,b}\right] &=& A_t\,\frac{Z^{e|e}_{t,t_*}}{Z^{e|e}_{t,b}} , \qquad\textrm{in particular}\qquad
+  \EE^{e|e,b}_t\left[C^{e,\delta}_{a,b}\right] ~=~ \frac{Z^{e|e}_{t,a}}{Z^{e|e}_{t,b}} \quad (t\le a).
+  \label{eq:coupon_native_forward}
+\end{eqnarray}
+The same holds for the continuous factor, $\EE^{e|e,b}_t[C^{e,0}_{a,b}] = e^{\int_a^{t}r^{e|e}_udu}/Z^{e|e}_{t,b}$ for $a\le t\le b$ and $Z^{e|e}_{t,a}/Z^{e|e}_{t,b}$ for $t\le a$, and, under the constant funding spread hypothesis, for the Libor factor with the extra factor $\kappa^e$. So the native value of a coupon is $Z^{e|e}_{t,a}\kappa^e - Z^{e|e}_{t,b}$ ($\kappa^e = 1$ for compounded coupons) for every coupon type, and native swaps are model-free whatever the coupon type.
+\end{lemm}
+
+\begin{proof}
+The value at $s$ of a payoff $X$ paid at $b$ under native collateral is $V_s = \EE^{e,\RN}_s[e^{-\int_s^b r^{e|e}_udu}X] = Z^{e|e}_{s,b}\EE^{e|e,b}_s[X]$. Write $C = C_{<k}\,C_{\ge k}$ with $C_{<k} = \prod_{l<k}1/Z^{e|e}_{t_l,t_{l+1}}$ (known at $t_{k-1}$) and $C_{\ge k} = \prod_{l\ge k}1/Z^{e|e}_{t_l,t_{l+1}}$. We show by backward induction on $k$ that the value at $t_k$ of $C_{\ge k}$ paid at $b$ is $1$. For $k = n-1$ it is $Z^{e|e}_{t_{n-1},b}/Z^{e|e}_{t_{n-1},b} = 1$. If it holds for $k+1$, the value at $t_k$ of $C_{\ge k}$ paid at $b$ is the value at $t_k$ of $1/Z^{e|e}_{t_k,t_{k+1}}$ units received at $t_{k+1}$ (tower property at $t_{k+1}$, the factor being known at $t_k$), i.e.\ $1$. Hence the value at $t$ of $C$ paid at $b$ is $A_t$ times the value at $t$ of one unit at $t_*$, i.e.\ $A_tZ^{e|e}_{t,t_*}$, and we divide by $Z^{e|e}_{t,b}$. For the continuous factor and $t\le a$, $e^{-\int_t^br^{e|e}_udu}C^{e,0}_{a,b} = e^{-\int_t^ar^{e|e}_udu}$, whose $\QQ^{e,\RN}$-expectation is $Z^{e|e}_{t,a}$; for $a<t\le b$ the factor $e^{\int_a^tr^{e|e}_udu}$ is known at $t$ and the rest is $e^{-\int_t^b r^{e|e}_udu}e^{\int_t^b r^{e|e}_udu} = 1$. For the Libor factor, this is \eqref{eq:constant_funding_spread} at $t = T = a$.
+\end{proof}
+
+\begin{rema}[Native collateral: every coupon is model-free]\label{rema:coupon_native_model_free}
+Under native collateral the coupons telescope: the value of a floating leg is $\sum_j(\kappa^eZ^{e|e}_{t,T_{j-1}} - Z^{e|e}_{t,T_j})$ and does not depend on the volatilities, the grid or the compounding (daily or continuous). This is why native OIS swaps and swaptions are unchanged when Libor coupons are replaced by compounded ones: the floating leg of an OIS swap is $Z^{e|e}_{t,T_0}-Z^{e|e}_{t,T_n}$ whatever the payment frequency. Collateral convexity only appears when the coupon is paid under a non-native collateral (\autoref{prop:coupon_collateral_convexity}). The lemma was checked numerically against the exact Gaussian benchmark of \autoref{rema:coupon_convexity_verification}: under native collateral it returns $Z^{f|f}_{t,a}/Z^{f|f}_{t,b}$ to $2.2\cdot10^{-16}$ (relative), also inside a period and for a non-zero state $z_t$.
+\end{rema}
+
+
 
 
 \subsubsection{Funding basis spreads}
@@ -1193,7 +1234,34 @@ Let $d,e,f$ be three currencies. Then, non-resetting currency basis spreads sati
 \begin{eqnarray}
    B^{d/f|i,nr}_{t,T;M} &=& B^{d/e|i,nr}_{t,T;M} - \frac{A^{f|i}_{t,T;M}}{A^{d|i}_{t,T;M}} B^{f/e|i,nr}_{t,T;M}    .
 \end{eqnarray}
-This follows from the fact that an $f/e$ non-resetting cross-currency swap can be synthesised from $d/f$ and $d/e$ swaps. There is no analog for the resetting currency basis spreads. 
+This follows from the fact that an $f/e$ non-resetting cross-currency swap can be synthesised from $d/f$ and $d/e$ swaps. There is no analog for the resetting currency basis spreads.
+\end{rema}
+
+
+\begin{prop}[Resetting swaplets with Libor or compounded coupons]\label{prop:rfr_ccs_swaplet}
+Consider a resetting cross-currency swaplet on $[a,b]$, $\theta = b-a$, under domestic collateral $d$, whose foreign leg pays the coupon factor $C^f_{a,b}$ plus the spread and whose domestic leg pays $C^d_{a,b}$ on the notional $N^d = x^{df}_aN^f$ reset at $a$, each coupon factor being Libor or compounded overnight \eqref{eq:coupon_factors}. Then, for $t\le a$, in any arbitrage free model with constant funding spreads,
+\begin{eqnarray}
+  1+\theta L^{f/d|d}_{t,a;\theta} ~:=~ \EE^{f|d,b}_t\left[ \frac{x^{fd}_{b}}{x^{fd}_{a}}\, C^d_{a,b} \right] &=& \kappa^d\,\frac{Z^{f|d}_{t,a}}{Z^{f|d}_{t,b}} , \label{eq:rfr_resetting_leg}\\
+  \theta B^{f/d|d,r}_{t,a;\theta} ~=~ \left(1+\theta L^{f/d|d}_{t,a;\theta}\right) - \EE^{f|d,b}_t\left[C^f_{a,b}\right] &=& \kappa^d\,\frac{Z^{f|d}_{t,a}}{Z^{f|d}_{t,b}} - \kappa^f\,\frac{Z^{f|f}_{t,a}}{Z^{f|f}_{t,b}}\,K^{C}_t(a,b) , \label{eq:rfr_swaplet_spread}
+\end{eqnarray}
+where $\kappa^e = 1$ for a compounded coupon and
+\begin{eqnarray}
+  K^{C}_t(a,b) &:=& \frac{\EE^{f|d,b}_t\left[C^f_{a,b}\right]}{\EE^{f|f,b}_t\left[C^f_{a,b}\right]} ~=~ \Q^{f|f\to d}_{t,b}\left[C^f_{a,b}\right]
+  \label{eq:coupon_convexity_def}
+\end{eqnarray}
+is the collateral convexity of the foreign coupon factor, computed in \autoref{prop:coupon_collateral_convexity}. In particular, the domestic resetting leg is model-free for both coupon types, and all the model dependence of the swaplet spread is in $K^C_t(a,b)$. The swap spread is \eqref{eq:forward_cb_resetting} with these swaplets.
+\end{prop}
+
+\begin{proof}
+By the change of currency formula (\autoref{sec:market_observables_list} and the proposition on FX forwards in the section on collateral convexity), $\EE^{f|d,b}_t[\frac{x^{fd}_b}{x^{fd}_a}C^d_{a,b}] = x^{fd|d}_{t,b}\,\EE^{d|d,b}_t[x^{df}_aC^d_{a,b}]$. By the tower property at $a$ and \autoref{lemm:coupon_native_forward} at $t = a$ (domestic coupon under native collateral), $\EE^{d|d,b}_a[C^d_{a,b}] = \kappa^d/Z^{d|d}_{a,b}$, so
+\begin{eqnarray*}
+  \EE^{d|d,b}_t\left[x^{df}_aC^d_{a,b}\right] ~=~ \kappa^d\,\EE^{d|d,b}_t\left[\frac{x^{df}_a}{Z^{d|d}_{a,b}}\right] ~=~ \kappa^d\,\frac{Z^{d|d}_{t,a}}{Z^{d|d}_{t,b}}\,\EE^{d|d,a}_t\left[x^{df}_a\right] ~=~ \kappa^d\,\frac{Z^{d|d}_{t,a}}{Z^{d|d}_{t,b}}\,x^{df|d}_{t,a} ,
+\end{eqnarray*}
+where the second equality is the change of num\'eraire from $Z^{d|d}_{\cdot,b}$ to $Z^{d|d}_{\cdot,a}$ for an $\mathcal{F}_a$-measurable payoff. With $x^{df|d}_{t,T} = x^{df}_tZ^{f|d}_{t,T}/Z^{d|d}_{t,T}$ and $x^{fd|d}_{t,b} = 1/x^{df|d}_{t,b}$ we get \eqref{eq:rfr_resetting_leg}. The foreign leg is $\EE^{f|d,b}_t[C^f_{a,b}] = K^C_t(a,b)\,\EE^{f|f,b}_t[C^f_{a,b}]$, and \autoref{lemm:coupon_native_forward} gives $\EE^{f|f,b}_t[C^f_{a,b}] = \kappa^fZ^{f|f}_{t,a}/Z^{f|f}_{t,b}$.
+\end{proof}
+
+\begin{rema}
+For Libor coupons \eqref{eq:rfr_swaplet_spread} is \eqref{eq:cb_r_swaplet} rewritten with $K^C = K^{\mathrm{L}}$, the Libor collateral convexity $(1+\theta L^{f|d}_{t,a;\theta})/(1+\theta L^{f|f}_{t,a;\theta})$. Switching the foreign coupon from Libor to compounded overnight changes only $\kappa^f$ (to $1$) and $K^C$; switching the domestic coupon changes only $\kappa^d$. For $t$ inside the accrual period the foreign leg is \autoref{lemm:coupon_native_forward} with the fixed part $A_t$, and the convexity only involves the fixings after $t$ (\autoref{prop:coupon_collateral_convexity}).
 \end{rema}
 
 
@@ -1361,7 +1429,11 @@ By definition of the instantaneous collateral basis, it can be computed as
 \begin{rema}
 Note that the symbol $\Q^{e|i\to j}_{t,T}$ is neither linear nor a multiplicative operator\footnote{For mathematicians, it can be seen as the differential/coboundary operator in cohomology.
 %We have $d: \bigoplus E^i \to \bigoplus_{i,j} E^{i,j}$, $d (i, v^e_T) = \log  \EE^{e|j,T}_t\left[ v^e_T \right] - \log  \EE^{e|i,T}_t\left[ v^e_T \right] $  
-}. However, it provides a nice way to express convexity adjustments in the case of lognormal variables. This property makes it especially relevant to the extension of the BS and LGM models where the standard changes of measures are given by lognormal processes.   
+}. However, it provides a nice way to express convexity adjustments in the case of lognormal variables. This property makes it especially relevant to the extension of the BS and LGM models where the standard changes of measures are given by lognormal processes.
+\end{rema}
+
+\begin{rema}[Coupon factors]\label{rema:coupon_convexity_hjm}
+For a foreign coupon factor $C^f_{a,b}$ \eqref{eq:coupon_factors} paid at $b$ under domestic collateral, the forward collateral convexity adjustment is the coupon collateral convexity of \eqref{eq:coupon_convexity_def}, $K^C_t(a,b) = \Q^{f|f\to d}_{t,b}[C^f_{a,b}]$. The native forward in its denominator is model-free (\autoref{lemm:coupon_native_forward}); the numerator is not, because the coupon fixes at the dates $t_k$ while the collateral basis accrues until $b$. For a Libor coupon this is $K^{\mathrm{L}}_t(a,b) = (1+\theta L^{f|d}_{t,a;\theta})/(1+\theta L^{f|f}_{t,a;\theta})$. The general HJM expression and the closed forms under deterministic volatilities are in \autoref{prop:coupon_collateral_convexity}.
 \end{rema}
 
 \subsection{Change of collateral}
@@ -1951,6 +2023,102 @@ TODO: Complete this investigation.
 
 
 
+\subsubsection{Collateral convexity of compounded coupons}%
+
+We now compute the collateral convexity $K^C_t(a,b)$ of \eqref{eq:coupon_convexity_def} for the three coupon factors \eqref{eq:coupon_factors} of a foreign index paid at $b$ under domestic collateral. We write $\Sigma^c = \Sigma^{f\to d}$ and, for $u<b$, $\nu(u) = \min\left(\{t_k : k<n,\ t_k>u\}\cup\{b\}\right)$ for the first fixing after $u$ (with $\nu(u) = a$ for $u<a$).
+
+\begin{prop}[Collateral convexity of compounded coupons]\label{prop:coupon_collateral_convexity}
+Let $C^f_{a,b}$ be a Libor, daily or continuous coupon factor \eqref{eq:coupon_factors} of the foreign currency, paid at $b$ under domestic collateral.
+\begin{enumerate}
+\item (HJM.) In any model of the section on arbitrage free models, for $t\le b$,
+\begin{eqnarray}
+  K^C_t(a,b) &=& \frac{\EE^{f|f,b}_t\left[C^f_{a,b}\,\xi_{t,b}\right]}{\EE^{f|f,b}_t\left[C^f_{a,b}\right]} , \qquad
+  \xi_{t,b} ~=~ \frac{\xi^{f|f\to d}_{b,b}}{\xi^{f|f\to d}_{t,b}} ~=~ \exp\left( -\int_t^b \Sigma^c_{u,b}\cdot dW^{f|f,b}_u - \frac{1}{2}\int_t^b \left|\Sigma^c_{u,b}\right|^2 du \right) ,
+  \label{eq:coupon_convexity_hjm}
+\end{eqnarray}
+with the density \eqref{eq:collateral_radon_nikodym}. The factors of $C^f_{a,b}$ fixed at $t$ cancel, so only the fixings after $t$ contribute.
+\item (Deterministic volatilities, in particular the LGCM.) If the volatilities are deterministic, $K^C_t(a,b)$ is deterministic and
+\begin{eqnarray}
+  \ln K^C_t(a,b) &=& -\int_t^b \varphi^C_u\cdot\Sigma^c_{u,b}\,du ,
+  \label{eq:coupon_convexity_kernel}
+\end{eqnarray}
+where $\varphi^C_u$ is the volatility loading of $\ln C^f_{a,b}$ on $dW_u$:
+\begin{eqnarray*}
+  \varphi^{\mathrm{L}}_u &=& \left(\Sigma^f_{u,b} - \Sigma^f_{u,a}\right)\vun_{u<a} , \\
+  \varphi^{\delta}_u &=& \sum_{k:\,t_k>u}\left(\Sigma^f_{u,t_{k+1}} - \Sigma^f_{u,t_k}\right) ~=~ \Sigma^f_{u,b} - \Sigma^f_{u,\nu(u)} , \\
+  \varphi^{0}_u &=& \Sigma^f_{u,b} - \Sigma^f_{u,a}\vun_{u<a} .
+\end{eqnarray*}
+Explicitly, with $a' = \max(t,a)$:
+\begin{eqnarray}
+  \ln K^{\mathrm{L}}_t(a,b) &=& -\int_t^a \left(\Sigma^f_{u,b}-\Sigma^f_{u,a}\right)\cdot\Sigma^c_{u,b}\,du \qquad (t\le a) , \label{eq:coupon_convexity_libor}\\
+  \ln K^{\delta}_t(a,b) &=& -\sum_{k:\,t_k>t}\int_t^{t_k}\left(\Sigma^f_{u,t_{k+1}}-\Sigma^f_{u,t_k}\right)\cdot\Sigma^c_{u,b}\,du , \label{eq:coupon_convexity_daily}\\
+  \ln K^{0}_t(a,b) &=& -\vun_{t<a}\int_t^a \left(\Sigma^f_{u,b}-\Sigma^f_{u,a}\right)\cdot\Sigma^c_{u,b}\,du \;-\; \int_{a'}^b \Sigma^f_{u,b}\cdot\Sigma^c_{u,b}\,du . \label{eq:coupon_convexity_continuous}
+\end{eqnarray}
+The Libor formula is the one-step case $n=1$ of the daily one, and the earlier proposition on the collateral convexity of Libors. The daily formula is exact for the traded coupon, also inside a partially accrued period ($a<t<b$). The continuous formula is its limit as $\delta\to0$ (\autoref{prop:coupon_continuous_error}).
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+1. By \eqref{eq:collateral_radon_nikodym} with $e = i = f$, $j = d$ and $T = b$, $\EE^{f|d,b}_t[C] = \EE^{f|f,b}_t[C\,\xi^{f|f\to d}_{b,b}]/\xi^{f|f\to d}_{t,b}$, and the denominator of $K^C$ is $\EE^{f|f,b}_t[C]$. The fixed part $A_t$ of \autoref{lemm:coupon_native_forward} is $\mathcal{F}_t$-measurable and positive, so it factors out of both expectations.
+
+2. Write $W = W^{f|f,b}$. Under $\QQ^{f|f,b}$ the instantaneous forwards have dynamic $dr^{f|f}_{s,u} = \mu_{s,u}ds + \sigma^f_{s,u}\cdot dW_s$ with a drift $\mu$ that is deterministic when the volatilities are (HJM drift condition and deterministic Girsanov kernels). For a fixing $t_k>t$, by stochastic Fubini,
+\begin{eqnarray*}
+  -\ln Z^{f|f}_{t_k,t_{k+1}} ~=~ \int_{t_k}^{t_{k+1}} r^{f|f}_{t_k,u}\,du ~=~ \textrm{deterministic} + \int_t^{t_k}\left(\Sigma^f_{s,t_{k+1}}-\Sigma^f_{s,t_k}\right)\cdot dW_s ,
+\end{eqnarray*}
+since $\int_{t_k}^{t_{k+1}}\sigma^f_{s,u}du = \Sigma^f_{s,t_{k+1}}-\Sigma^f_{s,t_k}$. Summing over the fixings after $t$ gives $\ln C^{\delta}_{a,b} = \textrm{($\mathcal{F}_t$-measurable)} + \int_t^b\varphi^\delta_s\cdot dW_s$, and the sum telescopes to $\Sigma^f_{s,b}-\Sigma^f_{s,\nu(s)}$. For the continuous factor, $r^{f|f}_u = r^{f|f}_{u,u} = r^{f|f}_{t,u} + \int_t^u\mu_{s,u}ds + \int_t^u\sigma^f_{s,u}\cdot dW_s$ for $u\ge t$, and by stochastic Fubini
+\begin{eqnarray*}
+  \int_{a'}^b\int_t^u \sigma^f_{s,u}\cdot dW_s\,du ~=~ \int_t^b \left(\int_{\max(s,a')}^b\sigma^f_{s,u}\,du\right)\cdot dW_s ~=~ \int_t^b\left(\Sigma^f_{s,b}-\Sigma^f_{s,\max(s,a')}\right)\cdot dW_s ,
+\end{eqnarray*}
+which is $\int_t^b\varphi^0_s\cdot dW_s$ since $\Sigma^f_{s,s} = 0$; the part $\int_a^{t}r^{f|f}_udu$ of a partially accrued period is $\mathcal{F}_t$-measurable. The Libor factor is the case $n=1$. So $X = \ln C^f_{a,b}$ and $Y = \ln\xi_{t,b}$ are jointly Gaussian given $\mathcal{F}_t$ (deterministic integrands against the same Brownian motion), $\EE^{f|f,b}_t[e^Y] = 1$, and by the lemma of the change of collateral formula
+\begin{eqnarray*}
+  K^C_t(a,b) ~=~ \frac{\EE_t[e^Xe^Y]}{\EE_t[e^X]\,\EE_t[e^Y]} ~=~ \exp\left(\Cov_t[X,Y]\right) ~=~ \exp\left(-\int_t^b\varphi^C_s\cdot\Sigma^c_{s,b}\,ds\right) .
+\end{eqnarray*}
+The explicit forms follow from $\varphi^C$: for $u<a$ all three kernels equal $\Sigma^f_{u,b}-\Sigma^f_{u,a}$ (no fixing has occurred), and on $[a',b]$ the Libor kernel is $0$, the daily kernel is $\Sigma^f_{u,b}-\Sigma^f_{u,\nu(u)}$ and the continuous one is $\Sigma^f_{u,b}$. Regrouping the daily integrand by fixing gives \eqref{eq:coupon_convexity_daily}.
+\end{proof}
+
+\begin{prop}[In-arrears term and continuous compounding error]\label{prop:coupon_continuous_error}
+Assume deterministic volatilities with $|\sigma^f_{s,u}|\le\bar{\sigma}^f$ and $|\sigma^c_{s,u}|\le\bar{\sigma}^c$ for $s\le u$ (Euclidean norms of the loadings on $dW$), and let $a' = \max(t,a)$.
+\begin{enumerate}
+\item (In-arrears term.) $\ln K^0_t(a,b) - \ln K^{\mathrm{L}}_t(a,b) = -\int_{a'}^b\Sigma^f_{u,b}\cdot\Sigma^c_{u,b}\,du$, so
+\begin{eqnarray*}
+  \left|\ln\frac{K^0_t(a,b)}{K^{\mathrm{L}}_t(a,b)}\right| ~\le~ \bar{\sigma}^f\bar{\sigma}^c\,\frac{(b-a')^3}{3} ~\le~ \bar{\sigma}^f\bar{\sigma}^c\,\frac{\theta^3}{3} ,
+\end{eqnarray*}
+uniformly in the start date $a$. The same bound holds for $\ln(K^\delta_t/K^{\mathrm{L}}_t)$.
+\item (Continuous vs daily, order one.) $\ln K^\delta_t(a,b) - \ln K^0_t(a,b) = \int_{a'}^b\Sigma^f_{u,\nu(u)}\cdot\Sigma^c_{u,b}\,du$, so, with $\delta = \max_k\delta_k$,
+\begin{eqnarray*}
+  \left|\ln\frac{K^\delta_t(a,b)}{K^0_t(a,b)}\right| ~\le~ \bar{\sigma}^f\bar{\sigma}^c\,\frac{(b-a')^2}{2}\,\delta .
+\end{eqnarray*}
+\item (Leading term.) If moreover $|\sigma^f_{s,u}-\sigma^f_{s,s}|\le\Lambda(u-s)$, the grid is uniform with step $\delta$ (the last step shortened), and $g(u) = \sigma^f_{u,u}\cdot\Sigma^c_{u,b}$ is Lipschitz on $[a',b]$ outside finitely many points (e.g.\ piecewise constant parameters), then
+\begin{eqnarray}
+  \ln\frac{K^\delta_t(a,b)}{K^0_t(a,b)} &=& \frac{\delta}{2}\int_{a'}^b \sigma^f_{u,u}\cdot\Sigma^c_{u,b}\,du + O(\delta^2) .
+  \label{eq:coupon_continuous_leading}
+\end{eqnarray}
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+1. Subtract \eqref{eq:coupon_convexity_libor} from \eqref{eq:coupon_convexity_continuous}. Then $|\Sigma^f_{u,b}|\le\int_u^b|\sigma^f_{u,v}|dv\le\bar{\sigma}^f(b-u)$, the same for $\Sigma^c$, and $|x\cdot y|\le|x||y|$, so the integrand is bounded by $\bar{\sigma}^f\bar{\sigma}^c(b-u)^2$. For the daily coupon the kernel on $[a',b]$ is $\Sigma^f_{u,b}-\Sigma^f_{u,\nu(u)} = \int_{\nu(u)}^b\sigma^f_{u,v}dv$, bounded by $\bar{\sigma}^f(b-u)$ too.
+
+2. Subtract the kernels: $\varphi^0_u-\varphi^\delta_u = \Sigma^f_{u,\nu(u)}\vun_{u\ge a'}$ on $[t,b]$, and $|\Sigma^f_{u,\nu(u)}|\le\bar{\sigma}^f(\nu(u)-u)\le\bar{\sigma}^f\delta$, $|\Sigma^c_{u,b}|\le\bar{\sigma}^c(b-u)$.
+
+3. $\Sigma^f_{u,\nu(u)} = (\nu(u)-u)\sigma^f_{u,u} + R_u$ with $|R_u|\le\Lambda(\nu(u)-u)^2/2\le\Lambda\delta^2/2$, so the remainder contributes $O(\delta^2)$ after integration. On a full step $[t_k,t_k+\delta]\subset[a',b]$ where $g$ is Lipschitz with constant $\Lambda_g$,
+\begin{eqnarray*}
+  \left|\int_{t_k}^{t_k+\delta}(t_k+\delta-u)g(u)\,du - \frac{\delta}{2}\int_{t_k}^{t_k+\delta}g(u)\,du\right|
+  ~=~ \left|\int_{t_k}^{t_k+\delta}\left(\tfrac{\delta}{2}-(u-t_k)\right)\left(g(u)-g(t_k)\right)du\right| ~\le~ \frac{\Lambda_g\delta^3}{4} ,
+\end{eqnarray*}
+and there are at most $\theta/\delta$ such steps, a total $O(\delta^2)$. The remaining steps (the one containing $a'$ when $t$ is inside the period, the shortened last step and the steps containing a break point of $g$) are finitely many, independent of $\delta$, and each contributes at most $2\sup|g|\,\delta^2$.
+\end{proof}
+
+\begin{rema}
+\begin{enumerate}
+\item In item 3 the constant is a covariance integral: in the LGCM $\sigma^f_{u,u}$ has loadings $\sigma^{f,i}_u$ ($M^{f,i}_{u,u} = 1$), so the leading term is $\frac{\delta}{2}\sum_{i,j}\int_{a'}^b\rho^{(f,i),(c,j)}_u\sigma^{f,i}_u\sigma^{c,j}_uG^{c,j}_{u,b}\,du$. Its sign (one factor per block) is that of the $(f,c)$ correlation: with $\rho^{f,c}<0$, $K^0>K^\delta$.
+\item The bounds are crude (they ignore the correlation). The measured sizes are in \autoref{rema:coupon_convexity_verification}: on the test model the in-arrears term is about $10^{-7}$ in $\ln K$, the Libor term $10^{-5}$ to $5\cdot10^{-4}$, and the continuous approximation is within $10^{-9}$ of the daily coupon.
+\item Item 1 bounds the in-arrears term uniformly in $a$; nothing is claimed about the Libor term \eqref{eq:coupon_convexity_libor}, which need not grow with $a-t$ in general (mean reversion damps $\Sigma^f_{u,b}-\Sigma^f_{u,a}$, and the sign of $\rho^{f,c}$ can make the integrand change sign). On the test model it does grow (numerical observation, item 3 of \autoref{rema:coupon_convexity_verification}): $K^{\mathrm{L}}-1 = 9.956\cdot10^{-6}$, $1.7963\cdot10^{-4}$, $5.4888\cdot10^{-4}$ at $a = 2, 10, 20$, so there the in-arrears term matters relatively more for short expiries.
+\end{enumerate}
+\end{rema}
+
+
+
 
 
  
@@ -2383,6 +2551,7 @@ All market observables of \autoref{sec:market_observables_list} follow from \aut
   1+\theta L^{f|d}_{t,T;\theta} &=& \left(1+\theta L^{f|f}_{t,T;\theta}\right) \exp\left\{ - \int_t^T \Sigma^{f|f}_{u,T;\theta}\cdot\Sigma^{f\to d}_{u,T+\theta}\, du \right\} .
   \label{eq:libor_collateral_convexity_lgcm}
 \end{eqnarray}
+For a compounded overnight coupon, with the convention \eqref{eq:forward_coupon}, $1+\theta L^{f|d}_{t,a;\theta} = K^C_t(a,b)\,Z^{f|f}_{t,a}/Z^{f|f}_{t,b}$ for $t\le a$ (\autoref{lemm:coupon_native_forward}), where $K^C_t(a,b)$ is deterministic in the LGCM and given by \autoref{prop:coupon_collateral_convexity}: the exponential in \eqref{eq:libor_collateral_convexity_lgcm} is the case $K^{\mathrm{L}}$, and the daily and continuous coupons replace it by \eqref{eq:coupon_convexity_daily} and \eqref{eq:coupon_convexity_continuous}.
 \item Swap rates, currency basis spreads and annuities are then ratios of sums of the above.
 \end{itemize}
 
@@ -2609,13 +2778,13 @@ Bloc & Main impact \\
 \hline
 $\Omega^{d,d}$, $\Omega^{f,f}$ & native swaption smiles: decorrelation of swap rates, calibrated in the single currency LGMs \\
 $\Omega^{c,c}$ & decorrelation of currency basis spreads of different tenors \\
-$\Omega^{f,c}$ & Libor collateral convexity $K_j$, drift of $q^{f|f\to d}$, $v^{f,c}_t$ \\
+$\Omega^{f,c}$ & coupon collateral convexity $K_j$ (Libor or compounded), drift of $q^{f|f\to d}$, $v^{f,c}_t$ \\
 $\Omega^{d,x}$, $\Omega^{f,x}$, $\Omega^{c,x}$ & quanto drifts, FX forward collateral convexity, FX option variance \\
 $\Omega^{d,f}$, $\Omega^{d,c}$ & joint distribution of domestic rates with foreign rates and basis (e.g. CVA) \\
 \hline
 \end{tabular}
 \end{center}
-The table follows from the formulas above. For example, $\Omega^{f,c}$ enters the Libor collateral convexity $\exp\{-\int \Sigma^{f|f}_{u,T;\theta}\cdot\Sigma^{f\to d}_{u,T+\theta}du\}$, and $\Omega^{c,x}$ enters the FX forward collateral convexity $\exp\{-\int\Sigma^{df}_{u,T}\cdot\Sigma^{i\to j}_{u,T}du\}$.
+The table follows from the formulas above. For example, $\Omega^{f,c}$ enters the Libor collateral convexity $\exp\{-\int \Sigma^{f|f}_{u,T;\theta}\cdot\Sigma^{f\to d}_{u,T+\theta}du\}$ and its compounded analogues (\autoref{prop:coupon_collateral_convexity}), and $\Omega^{c,x}$ enters the FX forward collateral convexity $\exp\{-\int\Sigma^{df}_{u,T}\cdot\Sigma^{i\to j}_{u,T}du\}$.
 
 A natural parametrisation is the following:
 \begin{enumerate}
@@ -2873,13 +3042,13 @@ In the LGCM, under the $T$-forward measure $\QQ^{f|d,T}$, $\hat{z}_T$ is a centr
 \end{lemm}
 
 \begin{lemm}\label{lemm:par_spread_state_functions}
-In the LGCM, $Y_t$ and $B_t$ are explicit functions of $\hat{z}_t$:
+In the LGCM, for $t\le T_0$, $Y_t$ and $B_t$ are explicit functions of $\hat{z}_t$:
 \begin{eqnarray*}
   P_{t,j} &=& Z^{f|d}_{0,t,T_j} \exp\left( -\hat{G}^{\top}_{t,T_j} \hat{z}_t - \frac{1}{2} \hat{G}^{\top}_{t,T_j}  \hat{y}_t \hat{G}_{t,T_j} \right) \\
-  1+\theta_j L_{t,j} &=& (1-\theta_j S^{f|f,\div}_{0,T_{j-1};\theta_j}) \, \frac{Z^{f|f}_{t,T_{j-1}}}{Z^{f|f}_{t,T_j}} \, e^{- \int_t^{T_{j-1}} \Sigma^{f|f}_{u,T_{j-1};\theta_j}\cdot\Sigma^{f\to d}_{u,T_j}\, du}  \\
+  1+\theta_j L_{t,j} &=& (1-\theta_j S^{f|f,\div}_{0,T_{j-1};\theta_j}) \, \frac{Z^{f|f}_{t,T_{j-1}}}{Z^{f|f}_{t,T_j}} \, K_{t,j}  \\
   1+\theta_j L^{r}_{t,j} &=& (1-\theta_j S^{d|d,\div}_{0,T_{j-1};\theta_j}) \, \frac{P_{t,j-1}}{P_{t,j}}
 \end{eqnarray*}
-where $Z^{f|f}_{t,T}$ is given by \autoref{theo:qgcm} with $z^f_t = \hat{z}^f_t - v^{f,c}_t$ and $v^{f,c}_t$ deterministic.
+where $Z^{f|f}_{t,T}$ is given by \autoref{theo:qgcm} with $z^f_t = \hat{z}^f_t - v^{f,c}_t$ and $v^{f,c}_t$ deterministic, and $K_{t,j} = K^C_t(T_{j-1},T_j)$ is the deterministic collateral convexity of the foreign coupon factor (\autoref{prop:coupon_collateral_convexity}): $K_{t,j} = e^{- \int_t^{T_{j-1}} \Sigma^{f|f}_{u,T_{j-1};\theta_j}\cdot\Sigma^{f\to d}_{u,T_j}\, du}$ for a Libor coupon, \eqref{eq:coupon_convexity_daily} or \eqref{eq:coupon_convexity_continuous} for a compounded one. For a compounded foreign (resp.\ domestic) coupon, $1-\theta_jS^{f|f,\div} = 1$ (resp.\ $1-\theta_jS^{d|d,\div} = 1$).
 \end{lemm}
 
 \begin{prop}[Gaussian approximation of forward swap rates]\label{prop:gauss_swap_rate}
@@ -2910,6 +3079,15 @@ Then $B_{T_0}$ is approximately normal under $\QQ^{f|d,A}$ with mean $B_0$ and v
 \end{prop}
 
 The proofs are in \autoref{sec:gaussian_approx_proofs}.
+
+\begin{rema}[Compounded overnight coupons]\label{rema:gauss_compounded}
+\autoref{prop:gauss_swap_rate} and \autoref{prop:gauss_cb_spread} hold as stated when the foreign coupons are compounded overnight (daily or continuous), with the convention \eqref{eq:forward_coupon} for $L_{t,j}$:
+\begin{enumerate}
+\item The loadings are unchanged in form. In \autoref{lemm:par_spread_state_functions} the coupon type only enters through the deterministic factor $K_{t,j}$ (and $\kappa^f = 1$), so $\nabla_{\hat{z}}\ln(1+\theta_jL_{t,j}) = [G^f_{t,T_j}-G^f_{t,T_{j-1}};0]$ for every coupon type, and the proofs of \autoref{sec:gaussian_approx_proofs} go through verbatim. The coupon type changes the loadings only through the forward values $L_j = (\kappa^fK_{0,j}F_{j-1}/F_j - 1)/\theta_j$ ($F_j = Z^{f|f}_{0,T_0,T_j}$), $B_j$, $Y$ and $B$ that enter the formulas, with $K_{0,j} = K^C_0(T_{j-1},T_j)$ seen from $0$.
+\item The exact distribution of $Y_{T_0}$ and $B_{T_0}$ (2D quadrature) uses the state functions at $T_0$, hence $K_{T_0,j} = K^C_{T_0}(T_{j-1},T_j)$ seen from $T_0$. Since $T_0$ is the start of the first period, every period starts at or after $T_0$ and no coupon is partially accrued at $T_0$: \eqref{eq:coupon_convexity_daily} and \eqref{eq:coupon_convexity_continuous} apply with $t = T_0\le T_{j-1}$.
+\item So the quadrature stays exact and the Gaussian approximation stays asymptotic in the volatility, as for Libor coupons. On the calibrated RFR example markets of the calibration section (daily SONIA and TONA coupons), the Gaussian CB volatilities differ from the quadrature by at most $7.1\cdot10^{-5}$ (GBPUSD) and $1.4\cdot10^{-4}$ (USDJPY) in relative terms, against $5.7\cdot10^{-5}$ for the EURIBOR coupons of the EURUSD market (measured, \autoref{rema:cal_verification}). The same remark applies to non-native swap rates $Y^{f|d}$ with compounded coupons.
+\end{enumerate}
+\end{rema}
 
 \begin{rema}[Consistency checks]
 \begin{enumerate}
@@ -3060,6 +3238,35 @@ All collateral convexity and quanto adjustments of the deterministic volatility 
 \end{eqnarray*}
 where $\Sigma^{df}_{u,T}$ has loadings $G^{d}_{u,T}$, $-G^f_{u,T}$, $-G^c_{u,T}$ and $1$, and $\Sigma^{e|e}_{u,T;\theta}$ has loadings $G^e_{u,T+\theta} - G^e_{u,T}$.
 
+The coupon convexities of \autoref{prop:coupon_collateral_convexity} are sums of covariance integrals too. The continuous one \eqref{eq:coupon_convexity_continuous} needs three. The daily one \eqref{eq:coupon_convexity_daily} has one term per overnight fixing ($92$ for a quarterly coupon with $\delta = 1/365$: $91$ full steps and a shortened last one), each with loadings $\Sigma^{f,i}_{u,t_{k+1}}-\Sigma^{f,i}_{u,t_k} = \sigma^{f,i}_uM^{f,i}_{u,t_k}G^{f,i}_{t_k,t_{k+1}}$. With $a' = \max(t,a)$ and the cocycle $M^{f,i}_{u,t_k} = M^{f,i}_{u,a'}M^{f,i}_{a',t_k}$, it is
+\begin{eqnarray*}
+  -\ln K^\delta_t(a,b) &=& \sum_{i\in f,\,j\in c}\ \sum_{k:\,t_k>t} G^{f,i}_{t_k,t_{k+1}}M^{f,i}_{a',t_k}\left( J_{t,a'}[M^{f,i}_{\cdot,a'},G^{c,j}_{\cdot,b}] + J_{a',t_k}[M^{f,i}_{\cdot,a'},G^{c,j}_{\cdot,b}] \right) ,
+\end{eqnarray*}
+one covariance integral over $[t,a']$ per pair of factors, plus the cumulative integrals $J_{a',t_k}$ on the grid refined by the knots, accumulated in closed form with the loadings of \autoref{lemm:affine_loadings} (\texttt{market.compounded\_convexity}; the loading $M^{f,i}_{u,a'} = 1/M^{f,i}_{a',u}$ for $u>a'$ is still affine in $\varphi_\beta$). This takes $0.43$ms for a daily quarterly coupon, against $48$ms for the loop over fixings (\texttt{\_compounded\_convexity\_scalar}, kept as the test oracle); the two agree to $|\Delta\ln K|\le1.1\cdot10^{-16}$.
+
+\begin{rema}[Verification of the coupon convexities]\label{rema:coupon_convexity_verification}
+The closed forms of \autoref{prop:coupon_collateral_convexity} were checked on the test model (function \texttt{default\_model} of \texttt{lgcm.py}: two domestic factors, one foreign, one collateral basis factor, $\rho^{f,c} = -0.4$, piecewise constant parameters) against an independent benchmark (function \texttt{coupon\_expectation\_exact} of \texttt{benchmarks.py}), which computes $\EE^{f|d,b}_t[C]$ as an exact Gaussian expectation: the state is augmented with the integrated short rates and with $\ln C$, propagated with the exact transitions of \autoref{prop:lgcm_transition_rn} from fixing to fixing ($\ln C$ accumulates $-\ln Z^{f|f}_{t_k,t_{k+1}}$, an affine function of the state, at each fixing), and the deflated payoff is the exponential of an affine function of a Gaussian vector. It does not use the covariance kernels of the closed forms.
+\begin{enumerate}
+\item Over Libor, daily steps $1/52$ and $1/12$, $t\in\{0, 2, 5+5/52\}$ (the last one inside a period) and $a\in\{5,10,20\}$, $|\ln K_{\mathrm{closed}}-\ln K_{\mathrm{bench}}|\le4.4\cdot10^{-16}$, for $\ln K$ of order $5\cdot10^{-5}$. The benchmark under native collateral returns $Z^{f|f}_{t,a}/Z^{f|f}_{t,b}$ to $2.2\cdot10^{-16}$ (\autoref{lemm:coupon_native_forward}), and $K$ does not depend on the state $z_t$ (to $10^{-12}$). The Libor formula equals the one-step daily formula to $10^{-14}$, and $\ln(K^0/K^{\mathrm{L}})$ equals the in-arrears integral of \autoref{prop:coupon_continuous_error} to $10^{-12}$ (relative).
+\item Monte Carlo (one quarterly period $[5,5.25]$, daily step $1/52$, $2^{16}$ paths, seed $13$): $z = -0.36$ for $K^\delta$, and $K = 1$ is rejected at $33.4$ standard errors (s.e.\ $1.47\cdot10^{-6}$ on $K$).
+\item Size of the in-arrears term (numerical observation, quarterly periods seen from $t=0$): $K-1$ is
+\begin{center}
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+$a$ & Libor & daily ($1/365$) & continuous & $\ln(K^0/K^{\mathrm{L}})$ \\
+\hline
+$2$  & $9.956\cdot10^{-6}$ & $1.0039\cdot10^{-5}$ & $1.0040\cdot10^{-5}$ & $8.4\cdot10^{-8}$ \\
+$10$ & $1.7963\cdot10^{-4}$ & $1.7975\cdot10^{-4}$ & $1.7975\cdot10^{-4}$ & $1.14\cdot10^{-7}$ \\
+$20$ & $5.4888\cdot10^{-4}$ & $5.4899\cdot10^{-4}$ & $5.4899\cdot10^{-4}$ & $1.11\cdot10^{-7}$ \\
+\hline
+\end{tabular}
+\end{center}
+The in-arrears term is about $10^{-7}$ and roughly constant in $a$, as \autoref{prop:coupon_continuous_error} predicts (bound $\bar{\sigma}^f\bar{\sigma}^c\theta^3/3\approx3.9\cdot10^{-7}$ with $\bar{\sigma}^f\approx1.47\%$, $\bar{\sigma}^c\approx0.51\%$, the largest spot volatilities), while the Libor term grows with $a$: the in-arrears term is $0.8\%$ of the convexity at $a = 2$ and $0.06\%$ at $a = 10$. A Monte Carlo cannot resolve it: in item 2 it is $0.07$ standard errors (about $2^{28}$ paths would be needed for $4$ standard errors). The exact benchmark of item 1 resolves it ($10^{-7}$ against $4.4\cdot10^{-16}$).
+\item Continuous vs daily (numerical observation, $a = 10$): $|\ln(K^\delta/K^0)| = 1.380\cdot10^{-8}$, $6.771\cdot10^{-9}$, $3.343\cdot10^{-9}$, $1.661\cdot10^{-9}$ for $\delta = 1/26, 1/52, 1/104, 1/208$ (ratios $2.04$, $2.03$, $2.01$) and $9.44\cdot10^{-10}$ for $\delta = 1/365$. The ratio of $\ln(K^\delta/K^0)$ to the leading term \eqref{eq:coupon_continuous_leading} is $1.0256$, $1.0128$, $1.0064$, $1.0036$, $1.0018$ for $\delta = 1/52, 1/104, 1/208, 1/365, 1/730$ (the same at $a = 2$ and $a = 20$ to $10^{-3}$): the first order term is confirmed and the remainder is $O(\delta^2)$ relative to $\delta$, as proved. In these models the continuous coupon is within $10^{-9}$ of the daily one on $\ln K$.
+\end{enumerate}
+The tests are in \texttt{tests/test\_ois.py}.
+\end{rema}
+
 
 \subsection{CurveEngine implementation}
 
@@ -3195,9 +3402,9 @@ We will assume that they are collateralised in currency $d$ (USD in practice).
 \subsubsection{Calibration targets and marked inputs}%
 The calibration described in this section, and implemented in \texttt{calibration.py} of the numerical companion, takes the following quotes:
 \begin{enumerate}
-\item native swap rates in $d$ and $f$ (OIS, or Libor with a constant funding spread);
-\item the FX spot $x^{df}_0$ and $d$-collateralised FX forwards (outrights or points);
-\item spot starting resetting currency basis (CB) swap spreads, $d$-collateralised;
+\item native swap rates in $d$ and $f$: OIS swaps, whose floating leg pays compounded overnight (RFR) coupons, or Libor swaps with a constant funding spread;
+\item the FX spot $x^{df}_0$ and $d$-collateralised FX forwards (outrights or points), in the direct quotation ($x^{df}$) or the inverted one ($1/x^{df}$);
+\item spot starting resetting currency basis (CB) swap spreads, $d$-collateralised, whose legs pay Libor or compounded overnight coupons;
 \item ATM normal volatilities of native swaptions in $d$ and $f$;
 \item ATM Black volatilities of FX options;
 \item ATM normal volatilities of forward resetting CB spreads (implied, or historical estimates when there is no option market).
@@ -3208,12 +3415,12 @@ The following inputs are marked, not calibrated: the mean reversions $\beta^{a,i
 \end{eqnarray}
 where the scalar level $\lambda^a_t$ and the FX spot volatility $\sigma^x_t$ are piecewise constant on the expiries of the options that calibrate them, with flat extrapolation after the last expiry. The model knots are the union of all expiries. Calibrating one level per block with fixed weights is a design choice: it gives one unknown per option quote, and it keeps the shape of the factor structure that was marked. If a block has no option quotes (e.g.\ no CB volatilities), its level is marked.
 
-The example market of the companion (\texttt{market\_data.py}: USD = $d$ with SOFR collateral, EUR = $f$ with ESTR collateral and EURIBOR 3M as the foreign index) has rounded, illustrative quotes. They are not live market data.
+The companion has three example markets (\texttt{market\_data.example\_quotes}), all with USD $= d$, SOFR collateral and SOFR domestic coupons: EURUSD (the original example, EUR $= f$ with ESTR collateral and EURIBOR 3M as the foreign index, i.e.\ Libor-type foreign coupons), GBPUSD (SONIA swaps and SONIA vs SOFR resetting CB swaps) and USDJPY (TONA swaps and TONA vs SOFR resetting CB swaps, FX quoted inverted). They are described in \autoref{rema:cal_example_markets}. Their quotes are rounded and illustrative. They are not live market data. Unless stated otherwise, ``the example market'' below is EURUSD.
 
 
 \subsection{Calibration instruments}\label{ssec:calibration_instruments}
 
-We write $\kappa^e = 1-\theta S^{e|e,\div} = 1+\theta s^e$ for the constant multiplicative funding spread of the index of currency $e$ with tenor $\theta$ \eqref{eq:constant_funding_spread}, $\kappa^e = 1$ for an OIS index. The spot date is $0$.
+We write $\kappa^e = 1-\theta S^{e|e,\div} = 1+\theta s^e$ for the constant multiplicative funding spread of the index of currency $e$ with tenor $\theta$ \eqref{eq:constant_funding_spread}, $\kappa^e = 1$ for an OIS index, whose coupons are compounded overnight (\autoref{rema:rfr_no_funding_spread}). For a compounded coupon, $L$ denotes the forward coupon rate \eqref{eq:forward_coupon}. The spot date is $0$.
 
 \begin{defi}[Calibration instruments]\label{defi:calibration_instruments}
 \begin{enumerate}
@@ -3222,8 +3429,8 @@ We write $\kappa^e = 1-\theta S^{e|e,\div} = 1+\theta s^e$ for the constant mult
   Y ~=~ \frac{\Fl}{A}, \qquad \Fl ~=~ \sum_{i=1}^m \left( \kappa^e Z_{t^f_{i-1}} - Z_{t^f_i} \right) ~=~ \sum_{m'} c^f_{m'} Z_{t^f_{m'}} , \qquad A ~=~ \sum_{k=1}^p \tau_k Z_{t^x_k} ,
   \label{eq:cal_swap_rate}
 \end{eqnarray}
-since $1+\theta L^{e|e}_{0,t^f_{i-1};\theta} = \kappa^e Z_{t^f_{i-1}}/Z_{t^f_i}$. The coefficients are $c^f = \kappa^e$ at $T_0$, $\kappa^e - 1$ at the intermediate floating dates and $-1$ at $T_n$.
-\item \emph{FX forwards.} $d$-collateralised, quoted as the outright $x^{df|d}_{0,T}$ or as points $(x^{df|d}_{0,T} - x^{df}_0)\cdot 10^4$.
+since $1+\theta L^{e|e}_{0,t^f_{i-1};\theta} = \kappa^e Z_{t^f_{i-1}}/Z_{t^f_i}$. The coefficients are $c^f = \kappa^e$ at $T_0$, $\kappa^e - 1$ at the intermediate floating dates and $-1$ at $T_n$. For an OIS (RFR) swap, $\kappa^e = 1$ holds exactly by \autoref{lemm:coupon_native_forward}, whatever the floating frequency and the compounding (daily or continuous): the floating leg is $Z_{T_0} - Z_{T_n}$. The GBP and JPY swaps of the examples are annual fixed against compounded SONIA or TONA.
+\item \emph{FX forwards.} $d$-collateralised, quoted as the outright $x^{df|d}_{0,T}$ or as points $(x^{df|d}_{0,T} - x^{df}_0)\cdot\pi$, with the pip factor $\pi = 10^4$. In the \emph{inverted} quotation the market quotes the reciprocal pair (units of $f$ per unit of $d$, e.g.\ USDJPY in JPY per USD when $d = $ USD and $f = $ JPY): the spot quote is $1/x^{df}_0$, the outright is $1/x^{df|d}_{0,T}$ and the points are $(1/x^{df|d}_{0,T} - 1/x^{df}_0)\cdot\pi$ ($\pi = 100$ for USDJPY). The model state is always $x = x^{df}$, so the model spot is the reciprocal of the quoted spot. This is exact: $1/x^{df|d}_{0,T} = x^{fd}_0Z^{d|d}_{0,T}/Z^{f|d}_{0,T}$ is the $d$-collateralised forward of the inverted pair.
 \item \emph{Resetting CB swaps.} $d$-collateralised, on the schedule $T_j = T_0 + j\theta$, $j = 0,\ldots,n$, with $\theta$ the tenor of the foreign index. With $P_j = Z^{f|d}_{0,T_j}$ and $F_j = Z^{f|f}_{0,T_j}$, the par spread is
 \begin{eqnarray}
   B ~=~ \frac{\sum_{j=1}^n \theta P_j B_j}{\sum_{j=1}^n \theta P_j} , \qquad
@@ -3232,14 +3439,36 @@ since $1+\theta L^{e|e}_{0,t^f_{i-1};\theta} = \kappa^e Z_{t^f_{i-1}}/Z_{t^f_i}$
 \end{eqnarray}
 where $\theta B_j = (1+\theta L^{f/d|d,r}_{0,T_{j-1};\theta}) - (1+\theta L^{f|d}_{0,T_{j-1};\theta})$ is the swaplet spread of \eqref{eq:forward_cb_swaplet_resetting} and
 \begin{eqnarray}
-  K_j ~=~ \frac{1+\theta L^{f|d}_{0,T_{j-1};\theta}}{1+\theta L^{f|f}_{0,T_{j-1};\theta}}
+  K_j ~=~ \frac{1+\theta L^{f|d}_{0,T_{j-1};\theta}}{1+\theta L^{f|f}_{0,T_{j-1};\theta}} ~=~ K^C_0(T_{j-1},T_j)
 \end{eqnarray}
-is the Libor collateral convexity.
+is the collateral convexity of the foreign coupon: the Libor collateral convexity for Libor coupons, the compounded one for RFR coupons. This is \autoref{prop:rfr_ccs_swaplet} at $t = 0$: the formula holds for both coupon types, the domestic (resetting) leg is model-free, and the coupon type only changes $\kappa^d$, $\kappa^f$ and $K_j$.
 \item \emph{Swaptions.} An ATM option on a native forward-starting swap with expiry $T_0$ (strike $K = Y$), quoted as the normal volatility $\sigma_N$ defined from the payer price $\mathrm{PV}$ by $\mathrm{PV} = A_0\,\sigma_N\sqrt{T_0/(2\pi)}$, $A_0 = \sum_k\tau_k Z^{e|e}_{0,t^x_k}$ (ATM Bachelier price under the annuity measure).
 \item \emph{CB swaptions.} An ATM option on the forward resetting CB spread $B_{T_0} = B^{f/d|d,r}_{T_0,T_0;M}$, quoted as the normal volatility $\sigma_N = \EE^{f|d,A}[(B_{T_0}-B_0)^+]\sqrt{2\pi/T_0}$ under the annuity measure.
-\item \emph{FX options.} An ATM option on $x^{df}_T$, quoted as a Black volatility $\sigma_\BS$. In the LGCM, $\ln x^{df}_T$ is Gaussian under $\QQ^{d|d,T}$ with variance $w^{df}_0(T) = \int_0^T|\Sigma^{df}_{u,T}|^2du$, which does not depend on the collateral, so the quote is $\sigma_\BS^2 T = w^{df}_0(T)$.
+\item \emph{FX options.} An ATM option on $x^{df}_T$, quoted as a Black volatility $\sigma_\BS$. In the LGCM, $\ln x^{df}_T$ is Gaussian under $\QQ^{d|d,T}$ with variance $w^{df}_0(T) = \int_0^T|\Sigma^{df}_{u,T}|^2du$, which does not depend on the collateral, so the quote is $\sigma_\BS^2 T = w^{df}_0(T)$. In the inverted quotation the option is on $1/x^{df}_T$; its ATM Black volatility is the same (\autoref{prop:cal_fx_inverted}), so the quote is used as is.
 \end{enumerate}
 \end{defi}
+
+\begin{prop}[FX options under the inverted quotation]\label{prop:cal_fx_inverted}
+Let $x = x^{df}$ and $\tilde{x} = 1/x = x^{fd}$, and $F = x^{df|d}_{0,T}$. Consider a call on $\tilde{x}_T$ with strike $\tilde{K}$ paid in $f$ and a put on $x_T$ with strike $K = 1/\tilde{K}$ paid in $d$, both $d$-collateralised, and their Black volatilities, defined with the forwards $\tilde{F} = \EE^{f|d,T}[\tilde{x}_T]$ and $F = \EE^{d|d,T}[x_T]$.
+\begin{enumerate}
+\item In any arbitrage free model, $\tilde{F} = 1/F$ and the two Black volatilities are equal. In particular the ATM Black volatility of $1/x$ (strike $1/F$) equals the ATM Black volatility of $x$ (strike $F$), and the same holds for calls and puts by put-call parity.
+\item In the LGCM, both smiles are flat: $\sigma_\BS^2T = w^{df}_0(T)$ at every strike.
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+1. By the change of currency formula for FX forwards in the section on collateral convexity, $\EE^{d|d,T}[x_Tv^f_T] = F\,\EE^{f|d,T}[v^f_T]$ for any payoff $v^f_T$ in $f$. With $v^f = \tilde{x}_T$ this gives $\tilde{F} = 1/F$, and with $v^f = (\tilde{x}_T-\tilde{K})^+$,
+\begin{eqnarray*}
+  \EE^{f|d,T}\left[(\tilde{x}_T-\tilde{K})^+\right] ~=~ \frac{1}{F}\EE^{d|d,T}\left[x_T\left(\tfrac{1}{x_T}-\tilde{K}\right)^+\right] ~=~ \frac{\tilde{K}}{F}\,\EE^{d|d,T}\left[(K-x_T)^+\right] .
+\end{eqnarray*}
+Let $\sigma$ be the Black volatility of the put, $\EE^{d|d,T}[(K-x_T)^+] = KN(-d_2)-FN(-d_1)$ with $d_{1,2} = (\ln(F/K)\pm\frac{1}{2}\sigma^2T)/(\sigma\sqrt{T})$. The right hand side is then $N(-d_2)/F - \tilde{K}N(-d_1)$. The Black call price of $\tilde{x}$ with forward $1/F$, strike $\tilde{K}$ and the same $\sigma$ is $\frac{1}{F}N(\tilde{d}_1)-\tilde{K}N(\tilde{d}_2)$ with $\tilde{d}_{1,2} = (\ln(1/(F\tilde{K}))\pm\frac{1}{2}\sigma^2T)/(\sigma\sqrt{T}) = -d_{2,1}$, the same number. Black prices are strictly increasing in the volatility, so $\sigma$ is the Black volatility of the call on $\tilde{x}$. ATM, $\tilde{K} = 1/F$ corresponds to $K = F$.
+
+2. $\ln x_T$ is Gaussian under $\QQ^{d|d,T}$ with variance $w^{df}_0(T)$ (\autoref{prop:cal_constraints}, item 3), so the put prices are Black prices with $\sigma^2T = w^{df}_0(T)$ at every strike, and item 1 transfers this to $\tilde{x}$.
+\end{proof}
+
+\begin{rema}
+Item 1 is the usual symmetry of FX volatilities: it uses only the FX forward identity, not the model. The implementation (\texttt{FXForward} with \texttt{inverted=True} and \texttt{MarketQuotes.}\allowbreak\texttt{fx\_inverted} in \texttt{instruments.py}) converts the inverted spot and forwards to the model pair and leaves the FX volatility quotes unchanged. The test \texttt{test\_fx\_option\_vol\_is\_}\allowbreak\texttt{invariant\_under\_inversion} checks the price identity of item 1 by adaptive quadrature of the lognormal density. In the Monte Carlo check the standard error of an inverted quote $g(F)$ is propagated by the delta method, $\pi s_F/F^2$ for points with $s_F$ the standard error of the outright $F$ (the second order bias, $O(s_F^2/F^3)$, is far below the standard error).
+\end{rema}
 
 \begin{rema}[Curve keys]
 A discount curve $Z^{e|c}$ is identified by the pair (currency $e$, collateral overnight index $c$), e.g.\ $Z^{f|d} = $ (EUR, USD SOFR). The calibrated curves are $Z^{d|d}$, $Z^{f|f}$ and $Z^{f|d}$, the three initial curves of \autoref{theo:qgcm}. The off-market curve $Z^{d|f}$ is a model output (see \autoref{ssec:cal_off_market}): it is not bootstrapped from quotes.
@@ -3261,10 +3490,10 @@ In particular, the native curves and $Z^{f|d}_{0,\cdot}$ up to the last FX forwa
 \end{prop}
 
 \begin{proof}
-1. Each floating coupon is replicated by $\kappa^e$ zero coupon bonds maturing at its start minus one at its end, by \eqref{eq:constant_funding_spread} and the definition of $L^{e|e}$ as an FRA par rate; fixed coupons are zero coupon bonds. 2. This is \eqref{eq:fx_forward} at $t=0$ with $i=d$.
+1. Each floating coupon is replicated by $\kappa^e$ zero coupon bonds maturing at its start minus one at its end, by \eqref{eq:constant_funding_spread} and the definition of $L^{e|e}$ as an FRA par rate for Libor coupons, and by \autoref{lemm:coupon_native_forward} (with $\kappa^e = 1$ and no hypothesis) for compounded ones; fixed coupons are zero coupon bonds. 2. This is \eqref{eq:fx_forward} at $t=0$ with $i=d$.
 \end{proof}
 
-Beyond the last FX forward, the resetting CB swaps determine $Z^{f|d}$, but \eqref{eq:cal_ccs_spread} also involves the Libor collateral convexities $K_j$. They depend on the model: $K_j = 1$ in the deterministic collateral basis (DCB) model, and in the LGCM, by \eqref{eq:libor_collateral_convexity_lgcm},
+Beyond the last FX forward, the resetting CB swaps determine $Z^{f|d}$, but \eqref{eq:cal_ccs_spread} also involves the coupon collateral convexities $K_j = K^C_0(T_{j-1},T_j)$. They depend on the model: $K_j = 1$ in the deterministic collateral basis (DCB) model, and in the LGCM they are given by \autoref{prop:coupon_collateral_convexity} at $t=0$: \eqref{eq:coupon_convexity_daily} for daily compounded coupons and, for Libor coupons, by \eqref{eq:libor_collateral_convexity_lgcm},
 \begin{eqnarray}
   K_j &=& \exp\left\{ -\int_0^{T_{j-1}} \Sigma^{f|f}_{u,T_{j-1};\theta}\cdot\Sigma^{f\to d}_{u,T_j}\,du \right\} .
   \label{eq:cal_libor_convexity}
@@ -3280,7 +3509,7 @@ Input: linear quotes (swaps, FX forwards, resetting CB swaps) and a pricer that 
 \item A quote whose pillar is not beyond the last node of its curve is not used. It is reported as a check.
 \item Flat extrapolation after the last pillar.
 \end{enumerate}
-The DCB market practice is the case $K_j = 1$ (\texttt{calibrate\_curves(quotes)}). The LGCM uses \eqref{eq:cal_libor_convexity} with the current model parameters.
+The DCB market practice is the case $K_j = 1$ (\texttt{calibrate\_curves(quotes)}). The LGCM uses the coupon convexity of the foreign index (\eqref{eq:cal_libor_convexity} for Libor, \eqref{eq:coupon_convexity_daily} for daily compounding with the step of the index, $1/365$ by default) with the current model parameters.
 \end{algo}
 
 \begin{rema}
@@ -3469,7 +3698,7 @@ Note that, while mathematically complex, the correspondence between model parame
 \subsubsection{Model usage and calibration targets}
 
 \begin{rema}[Model usage and calibration targets]
-The bootstrapping algorithm works as long as we have one target per expiry\footnote{With CB spread volatilities of tenor longer than the spacing of the expiries, the volatility of expiry $T_0$ reads $\sigma^c$ beyond $T_0$ (through the Libor convexities $K_{T_0,j}$), so the expiry by expiry bootstrap is no longer triangular. The fixed point of \autoref{algo:cal_lgcm} resolves this dependency.}. There is still a range of choices for the calibration targets that is up to discussion. The answer should be decided based on the model usage.
+The bootstrapping algorithm works as long as we have one target per expiry\footnote{With CB spread volatilities of tenor longer than the spacing of the expiries, the volatility of expiry $T_0$ reads $\sigma^c$ beyond $T_0$ (through the coupon convexities $K_{T_0,j}$), so the expiry by expiry bootstrap is no longer triangular. The fixed point of \autoref{algo:cal_lgcm} resolves this dependency.}. There is still a range of choices for the calibration targets that is up to discussion. The answer should be decided based on the model usage.
 
 The model can be used in two distinct ways:
 \begin{enumerate}
@@ -3498,12 +3727,12 @@ We use the notations of Definition~\ref{defi:calibration_instruments}, and $\Sig
 
 \begin{prop}[Calibration constraints]\label{prop:cal_constraints}
 \begin{enumerate}
-\item \emph{CB spread.} Write $P_j = F_j\,\QZ_j$ with $\QZ_j = \QZ^{f|f\to d}_{0,T_j}$. On a bootstrap segment, $\QZ$ has a flat forward $\bar{q}$ after the last node, and the model CB spread is \eqref{eq:cal_ccs_spread} with $K_j$ given by \eqref{eq:cal_libor_convexity}:
+\item \emph{CB spread.} Write $P_j = F_j\,\QZ_j$ with $\QZ_j = \QZ^{f|f\to d}_{0,T_j}$. On a bootstrap segment, $\QZ$ has a flat forward $\bar{q}$ after the last node, and the model CB spread is \eqref{eq:cal_ccs_spread} with $K_j = K^C_0(T_{j-1},T_j)$ given by \autoref{prop:coupon_collateral_convexity} (\eqref{eq:cal_libor_convexity} for Libor coupons):
 \begin{eqnarray}
   B(\bar{q}) &=& \frac{1}{\theta\sum_{j}P_j}\sum_{j=1}^n F_j\QZ_j \left( \kappa^d \frac{F_{j-1}\QZ_{j-1}}{F_j\QZ_j} - \kappa^f \frac{F_{j-1}}{F_j} K_j \right) .
 \end{eqnarray}
-It depends on the collateral basis volatility only through $K_j$, which reads $\sigma^c$ and $\sigma^f$ on $[0,T_{n-1}]$. The DCB model is the case $K_j = 1$.
-\item \emph{CB spread volatility.} The model volatility of the forward CB spread of expiry $T_0$ is given by the exact distribution of $B_{T_0}$ under $\QQ^{f|d,A}$ (\autoref{lemm:zhat_forward_law} and \autoref{lemm:par_spread_state_functions}, 2D quadrature) and, approximately, by \autoref{prop:gauss_cb_spread}: $\sigma_N^2T_0\approx\hat{q}_B^\top\hat{y}_{T_0}\hat{q}_B$. The exact value uses the Libor convexities seen from $T_0$, $K_{T_0,j} = \exp\{-\int_{T_0}^{T_{j-1}}\Sigma^{f|f}_{u,T_{j-1};\theta}\cdot\Sigma^{c}_{u,T_j}du\}$. So it reads $\sigma^c$ on $[0,T_{n-1}]$, beyond the expiry, and the curve $Z^{f|d}$ on $[T_0,T_n]$.
+It depends on the collateral basis volatility only through $K_j$, which reads $\sigma^c$ and $\sigma^f$ on $[0,T_{n-1}]$ for Libor coupons and up to the last overnight fixing before $T_n$ for daily compounded ones (the in-arrears term of \autoref{prop:coupon_continuous_error}). The DCB model is the case $K_j = 1$.
+\item \emph{CB spread volatility.} The model volatility of the forward CB spread of expiry $T_0$ is given by the exact distribution of $B_{T_0}$ under $\QQ^{f|d,A}$ (\autoref{lemm:zhat_forward_law} and \autoref{lemm:par_spread_state_functions}, 2D quadrature) and, approximately, by \autoref{prop:gauss_cb_spread}: $\sigma_N^2T_0\approx\hat{q}_B^\top\hat{y}_{T_0}\hat{q}_B$. The exact value uses the coupon convexities seen from $T_0$, $K_{T_0,j} = K^C_{T_0}(T_{j-1},T_j)$ (\autoref{rema:gauss_compounded}), e.g.\ $K_{T_0,j} = \exp\{-\int_{T_0}^{T_{j-1}}\Sigma^{f|f}_{u,T_{j-1};\theta}\cdot\Sigma^{c}_{u,T_j}du\}$ for Libor coupons. So it reads $\sigma^c$ on $[0,T_{n-1}]$ for Libor coupons (up to the last overnight fixing before $T_n$ for daily compounded ones), beyond the expiry, and the curve $Z^{f|d}$ on $[T_0,T_n]$.
 \item \emph{FX volatility.} The total variance of an FX option of expiry $T$ is
 \begin{eqnarray}
   w(T) ~=~ \sigma_\BS^2\, T ~=~ \int_0^T\left|\Sigma^{df}_{u,T}\right|^2du , \qquad
@@ -3529,9 +3758,9 @@ i.e.\ iff $c\le\sigma_\BS^2T$, or $b<0$ and $c - b^2/(4a)\le\sigma_\BS^2T$. Othe
 \end{prop}
 
 \begin{proof}
-1. Substitute $P_j = F_j\QZ_j$ in \eqref{eq:cal_ccs_spread}; $K_j$ is \eqref{eq:libor_collateral_convexity_lgcm} at $t=0$.
+1. Substitute $P_j = F_j\QZ_j$ in \eqref{eq:cal_ccs_spread}; $K_j$ is \autoref{prop:coupon_collateral_convexity} at $t=0$ (\eqref{eq:libor_collateral_convexity_lgcm} for Libor coupons). The daily kernel $\varphi^\delta_u$ vanishes after the last overnight fixing.
 
-2. The CB spread is a function of $\hat{z}_{T_0}$ by \autoref{lemm:par_spread_state_functions}, where the foreign Libor under domestic collateral at $T_0$ involves $K_{T_0,j}$ by \eqref{eq:libor_collateral_convexity_lgcm} at $t = T_0$, and $\hat{z}_{T_0}$ is Gaussian by \autoref{lemm:zhat_forward_law}.
+2. The CB spread is a function of $\hat{z}_{T_0}$ by \autoref{lemm:par_spread_state_functions}, where the foreign coupon forward under domestic collateral at $T_0$ involves $K_{T_0,j}$ by \autoref{prop:coupon_collateral_convexity} at $t = T_0$, and $\hat{z}_{T_0}$ is Gaussian by \autoref{lemm:zhat_forward_law}.
 
 3. By the proposition on the FX spot dynamic in the LGCM specification,
 \begin{eqnarray*}
@@ -3570,19 +3799,38 @@ Output: the model, the curves $Z^{d|d}$, $Z^{f|f}$, $Z^{f|d}$, and the off-marke
 \item The curve $Z^{f|d}$ beyond the FX forwards depends on $\sigma^c$ on $[0,30\mathrm{Y}]$ through the $K_j$ (\autoref{prop:cal_constraints}, item 1). The CB volatility of expiry $T_k$ depends on the curve (weights $P_j$, levels $B_j$) and, through $K_{T_k,j}$, on $\sigma^c$ on $[T_k,T_k+\mathrm{tenor}-\theta]$, i.e.\ on the next segment (item 2). Neither ``curve first, then volatilities'' nor ``expiry by expiry'' is triangular, hence the fixed point. The swaption and FX steps are triangular and need no iteration.
 \item A level set on $[T_{k-1},\infty)$ instead of $[T_{k-1},T_k)$ would overwrite the pieces read by the earlier CB volatilities. A draft implementation did this: the earlier CB volatilities were then missed by up to $3.8\cdot10^{-11}$. With one segment per expiry and the outer fixed point, they are repriced to $1.5\cdot10^{-17}$.
 \item On the example market the fixed point stops after $5$ iterations, with changes $\infty$, $6.2\cdot10^{-4}$, $1.8\cdot10^{-7}$, $4.0\cdot10^{-11}$, $8.2\cdot10^{-15}$: successive ratios $2.8\cdot10^{-4}$, $2.3\cdot10^{-4}$, $2.1\cdot10^{-4}$, a contraction factor of about $2$--$3\cdot10^{-4}$ per iteration. This is a numerical observation; we have no proof of contraction. It is consistent with the size of the coupling: $K_j - 1\le 2.24\cdot10^{-4}$ up to $30$Y. With $\sigma^c = 0$ and no CB volatilities, one pass suffices and the LGCM curve equals the DCB curve to $10^{-14}$ (test \texttt{test\_dcb\_limit}).
-\item The whole calibration takes $5.5$s on the example market (65 quotes). The calibrated levels are $\lambda^d$ between $1.19\%$ and $1.35\%$, $\lambda^f$ between $0.89\%$ and $1.05\%$, $\lambda^c$ between $9.9$bp and $18.6$bp and $\sigma^x$ between $7.0\%$ and $8.3\%$. Round trip: quotes generated by the calibrated model, calibrated from another initial $\lambda^c$, give back the parameters to $10^{-8}$ (relative) and $Z^{f|d}$ to $10^{-12}$.
+\item The whole calibration takes about $6$s on the example market (65 quotes; $5.6$ to $6.3$s measured in different runs on this branch, $6.1$ to $6.8$s for GBPUSD and $6.0$ to $6.6$s for USDJPY with daily coupons, also $5$ fixed point iterations). The calibrated levels are $\lambda^d$ between $1.19\%$ and $1.35\%$, $\lambda^f$ between $0.89\%$ and $1.05\%$, $\lambda^c$ between $9.9$bp and $18.6$bp and $\sigma^x$ between $7.0\%$ and $8.3\%$. Round trip: quotes generated by the calibrated model, calibrated from another initial $\lambda^c$, give back the parameters to $10^{-8}$ (relative) and $Z^{f|d}$ to $10^{-12}$.
 \end{enumerate}
 \end{rema}
 
 \begin{rema}[Verification]\label{rema:cal_verification}
-All numbers are for the example market and the default specification (one factor per block, $\beta^d = 3\%$, $\beta^f = 2\%$, $\beta^c = 10\%$, $\rho^{d,f} = 0.6$, $\rho^{f,c} = -0.4$, $\rho^{d,c} = -0.2$, $\rho^{d,x} = 0.25$, $\rho^{f,x} = 0.3$, $\rho^{c,x} = 0.35$), computed by \texttt{calibration\_check.py}.
+All numbers are for the three example markets (\autoref{rema:cal_example_markets}) and the default specification (one factor per block, $\beta^d = 3\%$, $\beta^f = 2\%$, $\beta^c = 10\%$, $\rho^{d,f} = 0.6$, $\rho^{f,c} = -0.4$, $\rho^{d,c} = -0.2$, $\rho^{d,x} = 0.25$, $\rho^{f,x} = 0.3$, $\rho^{c,x} = 0.35$), computed by \texttt{calibration\_check.py}. The GBPUSD and USDJPY markets are calibrated with daily compounded foreign coupons ($\delta = 1/365$).
 \begin{enumerate}
-\item \emph{Analytic repricing} with the exact pricers (65 quotes). Maximum absolute errors: swaps $2.3\cdot10^{-16}$, FX forwards $1.45\cdot10^{-12}$ pips, resetting CB swaps $5.0\cdot10^{-17}$, swaption normal volatilities $6.4\cdot10^{-17}$, FX Black volatilities $1.4\cdot10^{-17}$, CB normal volatilities $1.5\cdot10^{-17}$. The Gaussian approximations differ from the exact values by $+2.9\cdot10^{-4}$ to $+5.4\cdot10^{-3}$ (relative) for swaptions and at most $5.7\cdot10^{-5}$ for CB volatilities ($15$Y$\times1$Y).
-\item \emph{Monte Carlo repricing} of all 65 quotes with the exact LGCM scheme (quarterly grid refined by the payment and fixing dates), $2^{17}$ antithetic paths, seed $7$, with control variates whose means are exact no-arbitrage identities. All quotes are within $4$ standard errors; the largest $|z|$ is $2.22$ (EUR $20$Y$\times10$Y swaption). By type: swaps $2.15$, FX forwards $1.62$, CB swaps $0.97$, swaptions $2.22$, FX options $1.84$, CB volatilities $1.53$. Median standard errors: $0.0076$bp for CB spreads, $0.11$bp for swaption volatilities, $0.024$bp for CB volatilities. The option prices are compared as prices: the MC straddle is mapped to a volatility by the same linear map as the pricer, so no Gaussian assumption enters the MC side.
-\item \emph{Power of the checks.} The CB swap check resolves the Libor collateral convexity: the DCB spread ($K_j = 1$) on the calibrated curve is $+16$ standard errors ($2$Y) to $+124$ standard errors ($30$Y) away from the MC value in the run above, and $19.7$, $26.1$, $35.6$ standard errors at $5$, $7$, $10$Y in the reduced test run ($2^{15}$ paths, seed $11$). With $2^{18}$ paths (seed $3$) the Gaussian swaption approximation is rejected at $7.8$ and $7.0$ standard errors for USD $15$Y$\times10$Y and $20$Y$\times10$Y, while the exact values are at $+0.35$ and $+0.94$. The Gaussian gap of the CB volatilities ($\le5.7\cdot10^{-5}$ relative) is below the MC resolution (about $2.5\cdot10^{-3}$ relative): only the quadrature distinguishes it.
-\item \emph{What is not tested.} The swap and FX forward MC checks are martingale tests of the deflators against the curves ($\EE[D_t] = Z_{0,t}$, $\EE[D_Tx_T] = Z_{0,T}x^{df|d}_{0,T}$). They do not test the calibrated volatilities, and their closed forms are already repriced to $10^{-16}$ analytically. The CB volatility control variate assumes the closed form $K_{T_0,j}$; dropping $K_{T_0,j}-1\le7.2\cdot10^{-7}$ from it is not detected by the MC (it moves the spread by about $0.01$bp).
+\item \emph{Analytic repricing} with the exact pricers (65 quotes per market). Maximum absolute errors, EURUSD / GBPUSD / USDJPY: swaps $2.3\cdot10^{-16}$ / $4.2\cdot10^{-17}$ / $4.2\cdot10^{-17}$, FX forwards $1.45\cdot10^{-12}$ / $1.9\cdot10^{-12}$ / $1.0\cdot10^{-12}$ pips, resetting CB swaps $5.0\cdot10^{-17}$ / $5.2\cdot10^{-17}$ / $1.0\cdot10^{-16}$, swaption normal volatilities $6.4\cdot10^{-17}$ / $1.9\cdot10^{-17}$ / $1.4\cdot10^{-17}$, FX Black volatilities $1.4\cdot10^{-17}$ / $2.8\cdot10^{-17}$ / $4.2\cdot10^{-17}$, CB normal volatilities $1.5\cdot10^{-17}$ / $2.3\cdot10^{-17}$ / $3.6\cdot10^{-17}$. The Gaussian approximations differ from the exact values by $+2.9\cdot10^{-4}$ to $+5.4\cdot10^{-3}$ (relative) for the EURUSD swaptions ($5.4\cdot10^{-3}$ at most in every market), and at most $5.7\cdot10^{-5}$ ($15$Y$\times1$Y) / $7.1\cdot10^{-5}$ / $1.4\cdot10^{-4}$ for CB volatilities.
+\item \emph{Monte Carlo repricing} of all 65 quotes with the exact LGCM scheme (quarterly grid refined by the payment and fixing dates), $2^{17}$ antithetic paths, with control variates whose means are exact no-arbitrage identities. For the compounded coupons of GBPUSD and USDJPY, the overnight fixings are streamed through the simulation and the coupon is valued on the paths with a \emph{weekly} step $\delta = 1/52$, both on the paths and in the model (\texttt{mc\_report(..., compounding\_step=1/52)}: $1562$ simulation dates instead of $122$ for EURUSD). The closed form is exact for any step, and the daily to weekly change of the model quotes is at most $0.046$ (GBPUSD) and $0.019$ (USDJPY) standard errors, so the daily calibrated quotes remain the reference. With a \emph{daily} grid on the paths ($11040$ dates, $183$s), the $8$ GBPUSD CB swaps have $|z|\le2.17$ (seed $7$). Largest $|z|$ by type, seed $7$:
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+ & EURUSD & GBPUSD & USDJPY \\
+\hline
+swaps & $2.15$ & $1.74$ & $1.76$ \\
+FX forwards & $1.62$ & $1.82$ & $1.81$ \\
+resetting CB swaps & $2.15$ ($20$Y) & $3.10$ ($30$Y) & $2.70$ ($30$Y) \\
+swaptions & $2.22$ & $1.86$ & $1.89$ \\
+FX options & $1.84$ & $1.73$ & $1.83$ \\
+CB volatilities & $1.53$ & $2.70$ & $2.38$ \\
+\hline
+all quotes, seed $7$ / $8$ / $9$ & $2.22$ / $2.18$ / $2.71$ & $3.10$ / $2.51$ / $2.89$ & $2.70$ / $2.30$ / $2.65$ \\
+\hline
+\end{tabular}
+\end{center}
+All quotes are within $4$ standard errors. Median standard errors (seed $7$, EURUSD / GBPUSD / USDJPY): $0.0039$ / $0.0034$ / $0.0071$bp for CB spreads, $0.11$ / $0.12$ / $0.11$bp for swaption volatilities, $0.024$ / $0.017$ / $0.029$bp for CB volatilities. The CB spread standard errors grow with the maturity, from $0.00076$bp ($2$Y) to $0.0155$bp ($30$Y) for EURUSD. They were halved, compared with an earlier version of the check, by the control variate $C_3 = D^{f|f}_s\prod_{k<n-1}1/Z^{f|f}_{t_k,t_{k+1}}$ (the native rolled account, whose mean $Z^{f|f}_{0,a}$ is the model-free value of \autoref{lemm:coupon_native_forward}); for compounded coupons the control $D^{f|d}_s\prod_{k<n-1}1/Z^{f|d}_{t_k,t_{k+1}}$ (mean $Z^{f|d}_{0,a}$ by the same telescoping) was necessary: without it the standard error of a $5$Y GBPUSD CB spread was $0.134$bp instead of $0.0076$bp ($2^{15}$ paths). The option prices are compared as prices: the MC straddle is mapped to a volatility by the same linear map as the pricer, so no Gaussian assumption enters the MC side.
+\item \emph{No bias across seeds.} The $z$ of the CB swaps of one run are strongly correlated across maturities (same paths, shared periods), so a run with all $z$ of the same sign is not by itself a sign of bias (e.g.\ seeds $8$ and $9$ of EURUSD, where $7$ of the $8$ CB swaps have $z<0$). Over the $30$ seeds $100$ to $129$ (EURUSD, $2^{17}$ paths), the mean $z$ per maturity lies between $-0.13$ and $+0.26$ with a standard error of the mean of about $0.2$, the mean over all CB swaps is $+0.01\pm0.13$, and the sample standard deviation of $z$ per maturity is between $0.93$ and $1.29$ (about $1\pm0.13$ expected; $1.29$ at $20$Y). A larger sweep (EURUSD, $120$ seeds $100$ to $219$, $2^{13}$ paths, CB swaps $10$, $15$, $20$, $30$Y) gives standard deviations of $z$ of $0.94$, $0.95$, $0.97$ and $1.04$ (each $\pm0.06$), mean $z$ between $-0.04$ and $+0.08$ (standard error of the mean about $0.09$) and $\max|z| = 2.99$ over the $480$ values. So the $1.29$ at $20$Y of the $30$ seed sweep was sampling noise (the largest of $8$ standard deviations, each with standard error about $0.13$), and the standard error of the regression control variate (antithetic pairs averaged first, $p = 3$ controls, in-sample slope with a bias $O(p/N)$) is consistent with the observed spread: no batch-means correction is needed (numerical observation).
+\item \emph{Power of the checks.} The CB swap check resolves the collateral convexity of the coupons: the DCB spread ($K_j = 1$) on the calibrated curve is $+35.7$ ($2$Y) to $+205.8$ ($30$Y) standard errors away from the MC value for EURUSD (seed $7$), $+29.5$ to $+202.0$ for GBPUSD and $+12.5$ to $+156.6$ for USDJPY, and $37.9$, $50.0$, $65.8$ standard errors at $5$, $7$, $10$Y in the reduced EURUSD test run ($2^{15}$ paths, seed $11$). With $2^{18}$ paths (seed $3$) the Gaussian swaption approximation is rejected at $7.8$ and $7.0$ standard errors for USD $15$Y$\times10$Y and $20$Y$\times10$Y, while the exact values are at $+0.35$ and $+0.94$. The Gaussian gap of the CB volatilities ($\le1.4\cdot10^{-4}$ relative) is below the MC resolution (about $2.5\cdot10^{-3}$ relative): only the quadrature distinguishes it.
+\item \emph{Libor vs compounded coupons are not resolved by the MC.} On the RFR markets, the CB spread computed with the Libor convexity $K^{\mathrm{L}}_j$ in place of the compounded one differs from the model by $+0.00067$bp ($2$Y) to $+0.00099$bp ($30$Y) for GBPUSD and $+0.00059$ to $+0.00109$bp for USDJPY, i.e.\ between $0.05$ and $0.9$ standard errors at $2^{17}$ paths. The MC therefore checks the path valuation of the compounded coupons and rejects $K = 1$, but it cannot tell $K^\delta$ from $K^{\mathrm{L}}$. That distinction rests on the exact benchmark of \autoref{rema:coupon_convexity_verification} and on the deterministic test that the CB spread uses $K^\delta$ (\texttt{test\_rfr\_ccs\_uses\_the\_compounded\_convexity\_not\_libor}: on the test curves of a $20$Y SONIA CB swap with a weekly step, the Libor-$K$ spread differs by $3.7\cdot10^{-7}$, i.e.\ $0.004$bp, and the compounded one is matched to $10^{-13}$ relative).
+\item \emph{What is not tested.} The swap and FX forward MC checks are martingale tests of the deflators against the curves ($\EE[D_t] = Z_{0,t}$, $\EE[D_Tx_T] = Z_{0,T}x^{df|d}_{0,T}$). They do not test the calibrated volatilities, and their closed forms are already repriced to $10^{-16}$ analytically. The CB volatility control variate assumes the closed form $K_{T_0,j}$; dropping $K_{T_0,j}-1\le7.2\cdot10^{-7}$ from it is not detected by the MC (it moves the spread by about $0.01$bp, EURUSD).
 \end{enumerate}
-The tests are in \texttt{tests/test\_calibration.py}; the MC tests are marked \texttt{slow}.
+The tests are in \texttt{tests/test\_calibration.py} and \texttt{tests/test\_ois.py}; the MC tests are marked \texttt{slow}.
 \end{rema}
 
 \begin{rema}[Collateral convexity in the calibrated curves]\label{rema:cal_collateral_convexity}
@@ -3594,6 +3842,31 @@ We compare the LGCM calibration with the DCB curve bootstrap (\autoref{algo:cal_
 \item Sensitivity to $\rho^{f,c}$ (full recalibration, other inputs unchanged): $30$Y shift of the $Z^{f|d}$ zero rate / $10$Y FX forward collateral convexity of $5.63$/$20.95$bp for $\rho^{f,c} = -0.6$, $3.75$/$15.30$bp for $-0.4$, $0.00$/$3.98$bp for $0$ and $-3.76$/$-7.36$bp for $+0.4$. The curve shift vanishes at $\rho^{f,c} = 0$ because, with one factor per block, $K_j$ only involves the $(f,c)$ covariance. The calibrated $\lambda^c(10\mathrm{Y})$ hardly moves ($15.76$ to $15.81$bp). With the other default correlations, the correlation matrix is positive definite only for $\rho^{f,c}$ in about $[-0.7,0.6]$.
 \end{enumerate}
 The numbers of items 1 to 3 come from a script on the calibrated model; those of item 4 from the notebook \texttt{python/notebooks/lgcm\_calibration.py}.
+\end{rema}
+
+\begin{rema}[Example markets]\label{rema:cal_example_markets}
+The three example markets of \texttt{market\_data.py} share the USD side: $d = $ USD, collateral and domestic coupons SOFR, SOFR swaps from $4.30\%$ ($1$Y) to $3.80\%$ ($30$Y), USD swaption volatilities $84$ to $110$bp. Each has $65$ quotes: $18$ swaps, $5$ FX forwards ($1$M to $1$Y, points), $8$ resetting CB swaps ($2$Y to $30$Y, quarterly), $16$ swaptions ($1$Y to $20$Y $\times10$Y), $10$ FX options ($1$M to $15$Y) and $8$ CB volatilities ($1$Y to $20$Y $\times1$Y). The quotes are rounded and illustrative, not live data, and they are not smoothed: the forward collateral basis $q$ of the DCB curves (flat per bootstrap segment) jumps between the last FX forward and the first CB swaps. On the segments $0.75$--$1$Y / $1$--$2$Y / $2$--$3$Y it is $+20.4$ / $-9.6$ / $-4.0$bp (EURUSD, a change of sign), $-37.2$ / $-18.7$ / $-34.0$bp (USDJPY) and $-5.2$ / $-2.8$ / $-7.0$bp (GBPUSD). The EURUSD sign flip predates the RFR markets (the EURUSD quotes are those of the original example). These jumps come from the illustrative inputs, not from the model, and the calibrations reprice them.
+\begin{enumerate}
+\item EURUSD: EUR swaps $2.15\%$ to $2.80\%$ on EURIBOR 3M (funding spread $10$bp, so Libor-type foreign coupons), spot $1.10$ USD per EUR, CB spreads $-8$ to $-14$bp.
+\item GBPUSD: SONIA swaps (annual fixed against compounded SONIA) $4.05\%$ ($1$Y) to $3.80\%$ ($30$Y), spot $1.27$ USD per GBP, points $3.1$ ($1$M) to $37.0$ ($1$Y), SONIA vs SOFR CB spreads $-4$ to $-7$bp, GBP swaption volatilities $80$ to $104$bp, FX volatilities $7.8\%$ to $11.5\%$, CB volatilities $6.0$ to $7.5$bp.
+\item USDJPY: TONA swaps $0.55\%$ ($1$Y) to $1.80\%$ ($30$Y), spot quoted inverted, $150$ JPY per USD (model spot $x^{df}_0 = 1/150$ USD per JPY), points in $1/100$ JPY from $-49$ ($1$M) to $-593$ ($1$Y), TONA vs SOFR CB spreads $-26$ to $-34$bp, JPY swaption volatilities $45$ to $66$bp, FX volatilities $9.5\%$ to $12.2\%$, CB volatilities $10$ to $13$bp.
+\end{enumerate}
+The calibration (\autoref{algo:cal_lgcm}) succeeds on the three markets without variance squeeze; every linear quote sets a node ($31$ per market, no checks). Calibrated levels (first piece, peak, last piece): $\lambda^f = 93$, $105$, $89$bp (EURUSD), $105$, $119$, $100$bp (GBPUSD), $50$, $84$, $49$bp (USDJPY); $\lambda^c$ goes from $9.9$ to $18.6$bp (EURUSD), $6.6$ to $12.9$bp (GBPUSD) and $11.0$ to $21.5$bp (USDJPY) between the first and the last piece, mostly increasing with the expiry; $\sigma^x = 7.0$, $8.3$, $7.2\%$ (EURUSD), $7.8$, $9.3$, $8.1\%$ (GBPUSD), $9.5$, $10.5$, $7.6\%$ (USDJPY); $\lambda^d$ is the same in the three markets ($1.19\%$ to $1.35\%$). The LGCM zero rate of $Z^{f|d}$ is above the DCB one by $+0.13$, $+0.50$, $+1.62$, $+2.94$bp at $5$, $10$, $20$, $30$Y for GBPUSD and $+0.13$, $+0.57$, $+1.86$, $+3.19$bp for USDJPY (EURUSD: \autoref{rema:cal_collateral_convexity}, item 1). The largest coupon convexity $K-1$ of a quarterly period up to $30$Y is $2.241\cdot10^{-4}$ (EURUSD, Libor), $1.7607\cdot10^{-4}$ (GBPUSD, daily SONIA) and $1.7314\cdot10^{-4}$ (USDJPY, daily TONA).
+\end{rema}
+
+\begin{rema}[Libor-type vs compounded convexity in the calibrated curves]\label{rema:cal_libor_vs_rfr}
+How much does the coupon type matter for the calibrated curves? We recalibrated the RFR markets with the Libor convexity $K^{\mathrm{L}}_j$ in place of the daily compounded one $K^\delta_j$ (foreign index replaced by a Libor-type index with zero funding spread and the same tenor, so the native swaps are unchanged by \autoref{lemm:coupon_native_forward}; every other input is the same). On the calibrated GBPUSD model, $K-1$ of the period ending at $T$ is $1.347954\cdot10^{-6}$ (Libor) against $1.367025\cdot10^{-6}$ (daily) at $T = 2$Y, $3.482846\cdot10^{-5}$ against $3.485167\cdot10^{-5}$ at $10$Y and $1.760386\cdot10^{-4}$ against $1.760651\cdot10^{-4}$ at $30$Y: $\ln(K^\delta/K^{\mathrm{L}}) = 1.9$, $2.3$, $2.6\cdot10^{-8}$, roughly constant as \autoref{prop:coupon_continuous_error} predicts, while $\ln(K^0/K^\delta) = 1.6$ to $2.2\cdot10^{-10}$. The zero rate of the calibrated $Z^{f|d}$ moves by (Libor $K$ minus daily $K$)
+\begin{center}
+\begin{tabular}{|c|c|c|c|c|c|}
+\hline
+ & $2$Y & $5$Y & $10$Y & $20$Y & $30$Y \\
+\hline
+GBPUSD & $-0.00067$bp & $-0.00086$bp & $-0.00091$bp & $-0.00097$bp & $-0.00100$bp \\
+USDJPY & $-0.00060$bp & $-0.00097$bp & $-0.00109$bp & $-0.00101$bp & $-0.00096$bp \\
+\hline
+\end{tabular}
+\end{center}
+and the calibrated volatilities by at most $7.4\cdot10^{-8}$ (GBPUSD) and $3.9\cdot10^{-8}$ (USDJPY) in relative terms. With the continuous convexity $K^0$ instead of $K^\delta$ the shift is $+0.000005$ to $+0.000009$bp. These are numerical observations on these markets: the in-arrears term of compounded coupons moves the curves by about $0.001$bp, three orders of magnitude below the collateral convexity itself ($+2.9$ to $+3.2$bp at $30$Y against the DCB curve, \autoref{rema:cal_example_markets}), and far below the precision of the quotes. The Monte Carlo cannot resolve it (\autoref{rema:cal_verification}, item 5); the exact benchmark can (\autoref{rema:coupon_convexity_verification}). So, for compounded coupons in these markets, the Libor-type convexity is an excellent approximation; the compounded one is used because it is exact and costs $0.43$ms per period. \autoref{prop:coupon_continuous_error} shows when this could change: the in-arrears term is bounded by $\bar{\sigma}^f\bar{\sigma}^c\theta^3/3$ and does not grow with the expiry, while the Libor term grows with the expiry in these examples (an observation, not a property of the model), so it matters relatively more for long accrual periods (annual coupons) and short expiries ($0.8\%$ of the convexity at $2$Y on the test model of \autoref{rema:coupon_convexity_verification}).
 \end{rema}
 
 
@@ -3628,7 +3901,7 @@ On a segment between two currency basis pillars, one can either interpolate the 
   \theta B_{j} &=& \kappa^d (1+\theta R^{f|d}_{0,T_{j-1};\theta}) - \kappa^f K_j (1+\theta R^{f|f}_{0,T_{j-1};\theta}) 
   ~=~ (1+\theta R^{f|f}_{0,T_{j-1};\theta}) \left( \kappa^d\, \frac{\QZ^{f|f\to d}_{0,T_{j-1}}}{\QZ^{f|f\to d}_{0,T_j}} - \kappa^f K_j \right) 
 \end{eqnarray*}
-with $\kappa^e = 1-\theta S^{e|e,\div}$ and $K_j$ the (deterministic) Libor collateral convexity.
+with $\kappa^e = 1-\theta S^{e|e,\div}$ ($1$ for a compounded coupon) and $K_j$ the (deterministic) coupon collateral convexity.
 \begin{itemize}
 \item With flat forwards for $r^{f|d}_{0,\cdot}$ on the segment, $R^{f|d}_{0,T_{j-1};\theta}$ is constant and $B_j$ jumps one for one with the native forwards $R^{f|f}_{0,T_{j-1};\theta}$ at the native pillars. The implied collateral basis forward curve $q^{f|f\to d}_{0,\cdot} = r^{f|d}_{0,\cdot} - r^{f|f}_{0,\cdot}$ then carries all the term structure of the native curve with the opposite sign.
 \item With flat forwards for $q^{f|f\to d}_{0,\cdot}$ on the segment, $B_j$ only varies through the factor $1+\theta R^{f|f}_{0,T_{j-1};\theta}$ and the convexity $K_j$.
@@ -5560,7 +5833,7 @@ since, by Fubini and $\hat{\mathcal{M}}_{u,T}\hat{\mathcal{M}}_{w,u} = \hat{\mat
 \end{eqnarray*}
 
 \subsubsection{Proof of \autoref{lemm:par_spread_state_functions}}
-The formula for $P_{t,j}$ is \eqref{eq:qgcm_zfd_reconstruction}. Under the constant funding spread hypothesis, $1+\theta L^{f|f}_{t,T;\theta} = (1-\theta S^{f|f,\div}_{0,T;\theta})Z^{f|f}_{t,T}/Z^{f|f}_{t,T+\theta}$, and the foreign Libor under domestic collateral follows from \eqref{eq:libor_collateral_convexity_lgcm}. The resetting forward Libor is given by the proposition on resetting forward Libors in the HJM section.
+The formula for $P_{t,j}$ is \eqref{eq:qgcm_zfd_reconstruction}. Under the constant funding spread hypothesis, $1+\theta L^{f|f}_{t,T;\theta} = (1-\theta S^{f|f,\div}_{0,T;\theta})Z^{f|f}_{t,T}/Z^{f|f}_{t,T+\theta}$, and the foreign Libor under domestic collateral follows from \eqref{eq:libor_collateral_convexity_lgcm}. For a compounded coupon, $1+\theta L^{f|d}_{t,T;\theta} = K^C_t(T,T+\theta)Z^{f|f}_{t,T}/Z^{f|f}_{t,T+\theta}$ by \autoref{lemm:coupon_native_forward} and \autoref{prop:coupon_collateral_convexity}, with $K^C$ deterministic. The resetting forward Libor is given by the proposition on resetting forward Libors in the HJM section, or by \eqref{eq:rfr_resetting_leg} for any coupon type.
 
 \subsubsection{Proof of \autoref{prop:gauss_swap_rate}}
 Write $\ell_{t,j} = 1+\theta_jL_{t,j}$, so that $Y_t = A_t^{-1}\sum_j P_{t,j}(\ell_{t,j}-1)$. By \autoref{lemm:par_spread_state_functions}, $Y_t = Y(t,\hat{z}_t)$ with

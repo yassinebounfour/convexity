@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from math import sqrt, pi
 import numpy as np
 
-from .market import InitialCurves, libor_convexity
+from .market import InitialCurves
 
 
 @dataclass
@@ -54,8 +54,12 @@ def _ingredients(m, s):
     Gf = np.array([m.G(f, T0, T) for T in Tj])
     Gc = np.array([m.G(c, T0, T) for T in Tj])
 
-    def K(t, j):   # Libor collateral convexity, period j (fix T_{j-1}, pay T_j), seen from t
-        return libor_convexity(m, t, Tj[j - 1], Tj[j])
+    cp = s.curves.coupon("f")
+
+    def K(t, j):   # collateral convexity of the foreign coupon, period j (T_{j-1} to T_j), seen from t
+        # At t = T0 every period starts at or after T0, so no coupon is partially accrued at t and
+        # cp.convexity(m, T0, T_{j-1}, T_j) is the right quantity for compounded coupons too.
+        return cp.convexity(m, t, Tj[j - 1], Tj[j])
 
     K0 = np.array([np.nan] + [K(0.0, j) for j in range(1, s.n + 1)])
     KT = np.array([np.nan] + [K(T0, j) for j in range(1, s.n + 1)])
