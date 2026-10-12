@@ -4,6 +4,8 @@
 %
 \usepackage[english]{babel}
 \usepackage{amsmath,amssymb,url,xspace,amsthm}
+\usepackage{graphicx,booktabs}
+\usepackage[section]{placeins}
 %
 %%%%%%%%%%%%%%%%%%%% DIAGRAMS %%%%%%%%%%%%%%%%%%%%%%%\usepackage{xypic}
 %\usepackage[pdftex]{graphicx}
@@ -3127,6 +3129,86 @@ The error is multiplied by $4$ each time the volatilities are doubled, i.e. the 
 \autoref{prop:gauss_cb_spread} provides the model delivered volatility of currency basis spreads needed by the bootstrapping algorithm of the calibration section. It is explicit in the model parameters and only requires the covariance integrals of \autoref{ssec:covariance_integrals}, so it is cheap to evaluate inside the bootstrapping.
 \end{rema}
 
+\subsubsection{Correlations of FX and swap rates}\label{sssec:lgcm_correlations}
+Correlations between FX and rates fixings drive quanto and hybrid FX/rates products, and correlations between swap rates of different tenors or fixing dates drive CMS spread and mid-curve products. In the LGCM they are outputs of the model parameters. This section gives a closed form approximation, an exact benchmark and a Monte Carlo estimator (\texttt{correlations.py}).
+
+\begin{defi}[Terminal correlations]\label{defi:lgcm_terminal_correlation}
+The observables are the log FX spot $\ln x^{df}_T$ and the native forward swap rates $Y^{e}_{T_0} = Y^{e|e}_{T_0,T_0;M}$, $e\in\{d,f\}$, fixing at $T_0$ with tenor $M$ (the CMS fixing), each a function of the state at its date: $\ln x^{df}_T = \ln x^{df|d}_{0,T} + z^x_T$ and, by \autoref{theo:qgcm}, $Y^e_{T_0} = \sum_m c_m Z^{e|e}_{T_0,t_m}/\sum_k \tau_k Z^{e|e}_{T_0,t_k}$ with $Z^{e|e}_{T_0,t} = Z^{e|e}_{0,T_0,t}\exp(-G^{e,\top}_{T_0,t}z^e_{T_0} - \frac12G^{e,\top}_{T_0,t}y^{e,e}_{T_0}G^e_{T_0,t})$. The terminal correlation of two observables $X_1$, $X_2$ with dates $T_1$, $T_2$ (equal for ``same expiry'', different for ``intertemporal'') under a measure $\QQ$ is $\mathrm{Corr}^{\QQ}(X_1,X_2)$. We use $\QQ^{d,\RN}$ and the domestic forward measure $\QQ^{d|d,T^*}$, $T^*\ge T_1,T_2$; a CMS coupon paid at $T_p$ is valued under $\QQ^{d|d,T_p}$.
+\end{defi}
+
+\begin{prop}[Gaussian approximation of terminal correlations]\label{prop:lgcm_corr_approx}
+Let $s_t = (z^{1}_t,\ldots,z^{N}_t, z^x_t)$ be the rates factors and the log FX moneyness at $t$.
+\begin{enumerate}
+\item For $T_1, T_2 > 0$ and $\underline{T} = T_1\wedge T_2$, under $\QQ^{d,\RN}$, under $\QQ^{d|d,T^*}$ for any $T^*$, and under any measure whose density with respect to $\QQ^{d,\RN}$ is the exponential of a stochastic integral with a deterministic kernel,
+\begin{eqnarray*}
+  \Cov(z^i_{T_1},z^j_{T_2}) &=& \int_0^{\underline{T}} \rho_{ij}\sigma^i_u\sigma^j_u M^i_{u,T_1}M^j_{u,T_2}\,du , \\
+  \Cov(z^x_{T_1},z^j_{T_2}) &=& \int_0^{\underline{T}} \Sigma^{df}_{u,T_1}\cdot \sigma^j_u M^j_{u,T_2} e_j\,du , \qquad
+  \Cov(z^x_{T_1},z^x_{T_2}) ~=~ \int_0^{\underline{T}} \Sigma^{df}_{u,T_1}\cdot\Sigma^{df}_{u,T_2}\,du ,
+\end{eqnarray*}
+with $\Sigma^{df}_{u,T} = \Sigma^{d|d}_{u,T} - \Sigma^{f|f}_{u,T} - \Sigma^{f\to d}_{u,T} + \sigma^{df}_u$ the FX forward volatility, $a\cdot b$ the product with the correlation matrix, and $e_j$ the $j$-th driver. These are covariance integrals of \autoref{ssec:covariance_integrals}.
+\item Replace $Y^e_{T_0}$ by its frozen-weights linearisation $Y^e_0 + q^{e,\top}_Y z^e_{T_0}$ (\autoref{rema:gauss_native}) and keep $\ln x^{df}_T$, which is affine in $s_T$. With $g_k$ the loadings of $X_k$ on $s_{T_k}$ and $C(T_1,T_2) = \Cov(s_{T_1},s_{T_2})$ from item 1,
+\begin{eqnarray}
+  \mathrm{Corr}(X_1,X_2) &\approx& \frac{g_1^\top C(T_1,T_2)\,g_2}{\sqrt{g_1^\top C(T_1,T_1)\,g_1\;g_2^\top C(T_2,T_2)\,g_2}} .
+  \label{eq:lgcm_corr_approx}
+\end{eqnarray}
+The right hand side does not depend on the measure, and it is exact when both observables are log FX spots.
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+1. Under $\QQ^{d,\RN}$ the drift of $z^i$ is $-\beta^i_tz^i_t$ plus a deterministic function of $t$ ($y_t$ and $v^{f,c}_t$ are deterministic in the LGCM), so $z^i_T = m^i_T + \int_0^T M^i_{u,T}\sigma^i_u dW^i_u$ with $m^i_T$ deterministic. By the FX forward dynamic of the reconstruction section, $x^{df|d}_{t,T}$ is a $\QQ^{d|d,T}$-martingale with volatility $\Sigma^{df}_{t,T}$, and $W^{d|d,T} - W^{d,\RN}$ has a deterministic drift, so $z^x_T = \ln(x^{df|d}_{T,T}/x^{df|d}_{0,T}) = m^x_T + \int_0^T\Sigma^{df}_{u,T}\cdot dW_u$. The covariances follow from the It\^o isometry on $[0,\underline{T}]$. A change of measure with a deterministic kernel only adds deterministic drifts, which do not change the covariances; the kernel of $\QQ^{d|d,T^*}$ is $\Sigma^{d|d}_{\cdot,T^*}$ (\autoref{prop:lgcm_drifts}). 2. The linearised observables are affine in the Gaussian vector $(s_{T_1},s_{T_2})$; their covariance is $g_1^\top C(T_1,T_2)g_2$, by item 1 under any of these measures.
+\end{proof}
+
+\begin{rema}[Exact benchmark and Monte Carlo estimator]\label{rema:lgcm_corr_exact}
+\begin{enumerate}
+\item \emph{Exact.} Under $\QQ^{d,\RN}$ or $\QQ^{d|d,T^*}$, the state at the dates $T_1\le T_2$ is jointly Gaussian, with the law given by the exact transitions of \autoref{prop:lgcm_transition_rn} and \autoref{prop:lgcm_drifts}: $X_{T_2} = F X_{T_1} + \mu + \varepsilon$ gives $\Cov(X_{T_1},X_{T_2}) = \mathrm{Var}(X_{T_1})F^\top$. The observables only depend on the components $z^e$ of the swap blocks and $z^x$, so the moments $\EE[X_k]$, $\mathrm{Var}(X_k)$, $\Cov(X_1,X_2)$ are computed by tensor Gauss--Hermite quadrature on the range of the covariance of these components (dimension at most $4$ in the examples). This code path does not use the covariance integrals of item 1 of \autoref{prop:lgcm_corr_approx}; the two agree to $10^{-16}$ (absolute) on the state covariances.
+\item \emph{Monte Carlo.} The exact scheme of \autoref{ssec:lgcm_simulation} simulates the state under $\QQ^{d,\RN}$ at the dates. For $\QQ^{d|d,T^*}$ the paths are weighted by $D_{T_2}Z^{d|d}_{T_2,T^*}$ (its $\QQ^{d,\RN}$ expectation is $Z^{d|d}_{0,T^*}$ by the tower property), and the correlation is the self-normalised weighted sample correlation. Its standard error is the delta method one: with $\omega = w/\bar{w}$ and standardised $\tilde{x}$, $\tilde{y}$, the influence function is $\psi = \omega(\tilde{x}\tilde{y} - \frac{\rho}{2}(\tilde{x}^2+\tilde{y}^2))$, averaged over antithetic pairs.
+\item \emph{Control variate.} The linearised observables $L_k = g_k^\top s_{T_k}$, evaluated on the same paths, have the exactly known correlation \eqref{eq:lgcm_corr_approx}, under either measure. The estimator $\hat\rho(X_1,X_2) - \hat\rho(L_1,L_2) + \rho^{\mathrm{approx}}$, with influence function $\psi_X - \psi_L$, estimates the exact correlation with a much smaller standard error.
+\end{enumerate}
+\end{rema}
+
+\begin{rema}[Verification]\label{rema:lgcm_corr_verification}
+\autoref{tab:lgcm_corr_verification} checks the three estimators on the test model of \autoref{rema:coupon_convexity_verification} (two domestic factors, one foreign, one collateral basis, full $5\times5$ correlation, synthetic initial curves; $10$Y swaps with annual fixed and quarterly floating legs unless stated), and \autoref{fig:lgcm_corr_convergence} shows the convergence of the approximation (tests in \path{tests/test_correlations.py}; figures and tables by \path{python -m convexity.figures}).
+\begin{enumerate}
+\item The quadrature is converged ($12$ and $24$ nodes per dimension agree to $10^{-12}$).
+\item The approximation error is $O(\lambda^2)$ under the scaling of all volatilities by $\lambda$ (\autoref{fig:lgcm_corr_convergence}~(a), ratio column of the table): a numerical observation. The correlation itself is invariant under $\lambda$ at leading order. The dependence on the measure (panel~(b)) is of the same order, except for $\ln x_5$ against $Y^f_5$, where it is below $10^{-8}$ for $\lambda\le1$.
+\item Monte Carlo ($2^{17}$ paths, seed $1$) agrees with the exact correlation within $4$ standard errors, with and without control and under both measures. The control variate divides the standard error by about $10^3$ under $\QQ^{d,\RN}$, enough to reject the approximation (column ``approx ($z$)''). Under $\QQ^{d|d,15}$ the weights, whose coefficient of variation is $22\%$ at $5$Y, leave a controlled standard error of the order of the approximation error.
+\item The standard errors are calibrated: over $60$ to $200$ seeds the $z$-scores have a standard deviation between $0.92$ and $1.09$, with and without control and under both measures.
+\end{enumerate}
+\begin{table}[h]
+\centering\footnotesize
+\input{figures/table_corr_verification.tex}
+\caption{Terminal correlations on the test model under $\QQ^{d,\RN}$: exact value, error of the approximation \eqref{eq:lgcm_corr_approx} and its ratio when the volatilities are doubled ($\lambda = 0.5\to1\to2$), Monte Carlo $z$-scores against the exact value and standard errors (plain and with the control variate), the approximation in standard errors of the controlled Monte Carlo, and the controlled Monte Carlo under $\QQ^{d|d,15}$ against the exact value under that measure.}
+\label{tab:lgcm_corr_verification}
+\end{table}
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/corr_convergence.pdf}
+\caption{Absolute differences of correlations against the vol scale $\lambda$ (test model): (a) approximation minus exact, (b) $\QQ^{d|d,15}$ minus $\QQ^{d,\RN}$, both exact. The dotted line has slope $2$.}
+\label{fig:lgcm_corr_convergence}
+\end{figure}
+\end{rema}
+
+\begin{rema}[Correlation term structures]\label{rema:lgcm_corr_examples}
+\autoref{fig:lgcm_corr_term_structure} compares the test model with the LGCM calibrated to the EURUSD example (one factor per block, \autoref{rema:cal_verification}); \autoref{fig:lgcm_corr_tenor} shows correlations across tenors and fixing dates. Two qualitative features stand out.
+\begin{enumerate}
+\item With one factor per block, two swap rates of the same currency and expiry are almost perfectly correlated whatever their tenors (\autoref{fig:lgcm_corr_tenor}~(a)): decorrelation across tenors needs several factors per block, as in the test model. The correlations across currencies and with the FX spot are set by the marked correlations between the drivers and by the relative sizes of the volatilities, which change with the expiry (\autoref{fig:lgcm_corr_term_structure}).
+\item Intertemporal correlations (\autoref{fig:lgcm_corr_tenor}~(b)) decay on both sides of the reference fixing date: the two fixings only share the variance accumulated up to the earlier date, damped by the mean reversion $M^i_{T_1,T_2}$ (item 1 of \autoref{prop:lgcm_corr_approx}), while the later fixing adds the variance accumulated in between.
+\end{enumerate}
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/corr_term_structure.pdf}
+\caption{Terminal correlations under $\QQ^{d,\RN}$ against the common expiry $T$ ($10$Y swap rates): exact (lines), approximation \eqref{eq:lgcm_corr_approx} (small dots) and Monte Carlo with control variate, $2^{15}$ paths, $\pm4$ standard errors (open markers). Left: test model; right: LGCM calibrated to the EURUSD example.}
+\label{fig:lgcm_corr_term_structure}
+\end{figure}
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/corr_tenor_intertemporal.pdf}
+\caption{Exact correlations under $\QQ^{d,\RN}$ with the $5$Y$\times10$Y domestic swap rate: (a) the $5$Y swap rate of tenor $M$; (b) the $10$Y swap rate fixing at $T_1$ (intertemporal) and the log FX spot at $T_1$.}
+\label{fig:lgcm_corr_tenor}
+\end{figure}
+\end{rema}
+
 
 \newpage%
 \section{The Linear Gaussian Collateral Model: Implementation}
@@ -3528,7 +3610,7 @@ The DCB market practice is the case $K_j = 1$ (\texttt{calibrate\_curves(quotes)
 \end{rema}
 
 \subsubsection{Global curve calibration}\label{ssec:cal_global_curves}
-The bootstrap ties the interpolation to the quotes: one node per quote, one scalar equation per node, and piecewise flat forwards, whose jumps at the pillars reach $69$bp on the USD example curve. Current practice separates the two: the curve has its own parametrisation, piecewise flat where the market quotes forward rates directly (futures, FX forwards) and smooth where it quotes long par rates, and all its parameters are fitted together by non-linear least squares. Curves that depend on each other are calibrated as nested curve sets.
+The bootstrap ties the interpolation to the quotes: one node per quote, one scalar equation per node, and piecewise flat forwards, whose jumps at the pillars are visible in \autoref{fig:cal_curve_forwards}. Current practice separates the two: the curve has its own parametrisation, piecewise flat where the market quotes forward rates directly (futures, FX forwards) and smooth where it quotes long par rates, and all its parameters are fitted together by non-linear least squares. Curves that depend on each other are calibrated as nested curve sets.
 
 \begin{defi}[Hybrid forward curve]\label{defi:cal_hybrid_curve}
 Let $0 = s_0 < s_1 < \ldots < s_m$ (flat nodes, $m\ge1$) and $s_m = k_0 < k_1 < \ldots < k_n$ (spline knots, $n\ge0$). The hybrid curve with parameters $x = (f_1,\ldots,f_m,a_1,\ldots,a_n)$ has the instantaneous forward
@@ -3547,7 +3629,13 @@ Let $\phi = J - I$, so $\phi(k_i) = 0$ and $\phi'(k_0) = 0$. Then $\int(J'')^2 =
 \end{proof}
 
 \begin{rema}[Why the spline is on the integrated forward]
-Swap rates identify discount factors, i.e.\ integrals of the forward, not its point values. A cubic spline of the forward through free knot values $r_{0,k_i}$, fitted exactly to the nine USD swaps of the example (natural spline, flat forward to $1$Y), gives the knot values $4.21, 3.11, 3.82, 2.98, 4.58, 2.88, 5.73, 1.33, 9.88\%$ at $1,2,3,5,7,10,15,20,30$Y: the fit is exact and the forward zig-zags. The hybrid curve fitted to the same swaps has forwards $4.21, 3.29, 3.47, 3.56, 3.83, 4.04, 4.07, 3.70, 3.10\%$ at the same dates (\texttt{test\_spline\_through\_forward\_knot\_values\_zig\_zags}). Parametrising by the section averages $a_i$ keeps the parameters close to what the quotes measure, and \autoref{prop:cal_smooth_forward} says what is smooth about the result.
+Swap rates identify discount factors, i.e.\ integrals of the forward, not its point values. \autoref{tab:cal_zigzag} compares a natural cubic spline of the forward through free knot values $r_{0,k_i}$ (flat forward to $1$Y), fitted exactly to the nine USD swaps of the example, with the hybrid curve fitted to the same swaps: the fit is exact in both cases, but the knot-value spline zig-zags (negative control in \path{tests/test_curve_fitting.py}). Parametrising by the section averages $a_i$ keeps the parameters close to what the quotes measure, and \autoref{prop:cal_smooth_forward} says what is smooth about the result.
+\begin{table}[h]
+\centering\footnotesize
+\input{figures/table_zigzag.tex}
+\caption{Instantaneous forward at the knots, USD swaps of the EURUSD example (DCB), both fits exact.}
+\label{tab:cal_zigzag}
+\end{table}
 \end{rema}
 
 \begin{algo}[Nested global curve calibration]\label{algo:cal_global_curves}
@@ -3565,16 +3653,33 @@ With one quote per parameter and $\lambda = 0$ the problem is square and the fit
 \end{algo}
 
 \begin{rema}[Global fit against the bootstrap]\label{rema:cal_global_vs_bootstrap}
-Measured on the example markets (\texttt{tests/test\_curve\_fitting.py}).
+Example markets, deterministic collateral basis (DCB) curves unless stated (tests in \path{tests/test_curve_fitting.py}; figures and table by \path{python -m convexity.figures}).
 \begin{enumerate}
-\item \emph{Two independent algorithms, one curve.} With flat nodes at every pillar and no spline knots, the global fit returns the bootstrapped curves of \autoref{algo:cal_curve_bootstrap} (relative difference of discount factors below $10^{-12}$ up to $40$Y).
-\item \emph{Round trip.} Quotes generated from given hybrid curves for $Z^{d|d}$ (futures and swaps), $Z^{f|f}$ and $\QZ^{f|f\to d}$ (FX forwards and CB swaps) are fitted back to the same parameters ($10^{-11}$) and discount factors ($10^{-12}$ relative), nested or in a single problem.
-\item \emph{Exact fit, smooth forwards.} On the three example markets (DCB) every quote is repriced to $3\cdot10^{-12}$bp (pips for FX forwards), in $9$ to $18$ evaluations of the residuals per level ($1.1$s for EURUSD, against $0.04$s for the bootstrap). The two curves agree at the pillars where the quotes pin the discount factors (the FX forward maturities, and $Z^{d|d}$ at $1$Y and $2$Y). Between and beyond the pillars they differ by the interpolation: in zero rates, hybrid minus bootstrap is $+7.65$, $-0.56$, $+2.59$, $-0.66$, $-5.99$bp for $Z^{d|d}$ at $1.5$, $4$, $25$, $30$, $40$Y. The $40$Y difference is the extrapolation: flat at $r_{0,30}$ for the hybrid curve, flat at the $20$--$30$Y average forward for the bootstrap.
-\item \emph{Futures.} With the SOFR strip and the $1$Y and $2$Y swaps (17 USD quotes, 15 parameters) the bootstrap reprices the futures exactly and leaves the two swaps as checks, $0.050$ and $0.026$bp off. The least squares spreads the inconsistency: residuals $+0.038$ and $+0.019$bp on the swaps, $+0.012$ and $+0.002$bp on the futures of the first and second year (root mean square $0.012$bp), and satisfies the first order conditions $J^\top r = 0$ (checked with a finite difference Jacobian).
-\item \emph{LGCM.} With \texttt{GlobalFit()} the calibration of EURUSD, GBPUSD and USDJPY reprices all 65 quotes (linear quotes to $7\cdot10^{-17}$, FX forwards to $3\cdot10^{-12}$ pips), in $5$ fixed point iterations as with the bootstrap, in $11$s instead of $6$s. The calibrated $\lambda^d$, $\lambda^f$, $\lambda^c$, $\sigma^x$ move by at most $1.2\%$ (the long $\lambda^d$, $\lambda^f$ pieces, whose swaptions see the forwards between pillars). The collateral convexity of the $30$Y $Z^{f|d}$ zero rate (LGCM minus DCB) is $3.76$bp with hybrid curves against $3.75$bp with flat forwards: it is a property of the model, not of the interpolation (the remark ``Interpolation and convexity adjustments decouple in the LGCM'').
-\item \emph{Smoothing.} With more parameters than quotes ($Z^{f|f}$ with $11$ knots for $9$ swaps), the fit fails without penalty and, for $\lambda = 10^{-6}, 10^{-2}, 1$, the roughness decreases and the maximal residual increases monotonically.
-\item \emph{Locality.} The spline is not local. A $1$bp bump of the $10$Y USD swap moves the bootstrapped forward by $+3.69$bp on $(7,10]$Y and $-2.58$bp on $(10,15]$Y (the next section compensates), and by less than $0.02$bp elsewhere. It moves the hybrid forward on every section: $+0.10$bp at $4$Y, $-0.36$bp at $6$Y, $+4.57$bp at $8.5$Y, $-3.19$bp at $12$Y, $-0.16$bp at $25$Y. Smoothness is paid for with less local hedge ratios. The figures of this remark are measurements on these curves, not theorems.
+\item \emph{Two independent algorithms, one curve.} With flat nodes at every pillar and no spline knots, the global fit returns the bootstrapped curves of \autoref{algo:cal_curve_bootstrap} (discount factors agree to $10^{-12}$ relative up to $40$Y). Quotes generated from given hybrid curves are fitted back to the same parameters ($10^{-11}$), nested or in a single problem.
+\item \emph{Shape.} \autoref{fig:cal_curve_forwards} compares the forwards. Both curves reprice every quote (\autoref{tab:cal_global_fit}); they agree where the quotes pin the discount factors and differ between the pillars and in the extrapolation, flat at $r_{0,k_n}$ for the hybrid curve and at the last section average for the bootstrap.
+\item \emph{Futures.} With the SOFR strip, the $1$Y and $2$Y swaps lie inside the futures section. The bootstrap reprices the futures and leaves the two swaps as checks; the least squares spreads the inconsistency over the futures and the swaps (\autoref{fig:cal_curve_futures}~(a)) and satisfies the first order conditions $J^\top r = 0$ (checked with a finite difference Jacobian).
+\item \emph{LGCM.} With \texttt{GlobalFit()} the calibration reprices all $65$ quotes of each market, in as many fixed point iterations as with the bootstrap (\autoref{tab:cal_global_fit}). The calibrated volatilities move by at most about $1\%$ (the long $\lambda^d$, $\lambda^f$ pieces, whose swaptions see the forwards between pillars). The collateral convexity of the $30$Y $Z^{f|d}$ zero rate (LGCM minus DCB) is the same with both interpolations to a few hundredths of a bp: it is a property of the model, not of the interpolation (the remark ``Interpolation and convexity adjustments decouple in the LGCM'').
+\item \emph{Locality.} The spline is not local (\autoref{fig:cal_curve_futures}~(b)): a bump of one long swap moves the bootstrapped forwards on its section and the next only, but the hybrid forwards on every section. Smoothness is paid for with less local hedge ratios.
+\item \emph{Smoothing.} With more parameters than quotes the fit requires a penalty, and increasing it trades fit for smoothness monotonically.
 \end{enumerate}
+\begin{table}[h]
+\centering\footnotesize
+\input{figures/table_curve_fit.tex}
+\caption{Bootstrap (B) against global fit (G). DCB curves: largest residual of the global fit over all quotes (bp; pips for FX forwards), residual evaluations per nested level, wall time. LGCM calibration: fixed point iterations, wall time, largest relative change of $\lambda^d,\lambda^f,\lambda^c,\sigma^x$ on any piece, collateral convexity of the $30$Y $Z^{f|d}$ zero rate (LGCM minus DCB on the same quotes).}
+\label{tab:cal_global_fit}
+\end{table}
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/curve_forwards.pdf}
+\caption{Instantaneous forwards of the EURUSD example with the SOFR futures (DCB): bootstrap with flat forwards (dashed) against the global fit of hybrid curves (solid); ticks mark the pillars. The collateral basis forward is $r^{f|d}_{0,t} - r^{f|f}_{0,t}$.}
+\label{fig:cal_curve_forwards}
+\end{figure}
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/curve_futures_locality.pdf}
+\caption{(a) Residuals of the USD quotes up to $2$Y with the SOFR futures (bp of rate): the bootstrap fits the futures exactly, the least squares spreads the inconsistency. (b) Change of the USD forward when the $10$Y SOFR swap is bumped by $1$bp (EURUSD example without futures).}
+\label{fig:cal_curve_futures}
+\end{figure}
 \end{rema}
 
 
