@@ -26,16 +26,18 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `tests/test_lgcm.py` | the checks quoted in the verification remarks of the notes |
 | `tests/test_montecarlo.py` | reduced Monte Carlo checks (4 standard error tolerance, fixed seeds) |
 | `tests/test_payoffs.py` | Monte Carlo prices of all payoffs against LGCM closed forms, model-free prices in the QGCM, put-call parities |
-| `curves.py` | `Index` (OIS with daily or continuous compounding, or IBOR with funding spread, kappa = 1 + theta s; `.coupon`), curve keys `DiscountCurveKey(currency, collateral)` / `ForwardCurveKey`, `PiecewiseFlatCurve`, `SpreadCurve` (Z^{f\|d} = Z^{f\|f} x collateral basis curve), `FunctionCurve`, `LGCMSetup` (roles d, f and collateral indices), `CurveSet` (duck-type compatible with `InitialCurves`) |
-| `instruments.py` | calibration instruments (pure data): `Swap`, `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`; `Quote`, `MarketQuotes` |
+| `curves.py` | `Index` (OIS with daily or continuous compounding, or IBOR with funding spread, kappa = 1 + theta s; `.coupon`), curve keys `DiscountCurveKey(currency, collateral)` / `ForwardCurveKey`, `PiecewiseFlatCurve`, `HybridCurve` (flat forwards at the short end, cubic spline of the integrated forward at the long end), `SpreadCurve` (Z^{f\|d} = Z^{f\|f} x collateral basis curve), `FunctionCurve`, `LGCMSetup` (roles d, f and collateral indices), `CurveSet` (duck-type compatible with `InitialCurves`) |
+| `instruments.py` | calibration instruments (pure data): `Swap`, `RateFuture` (price 100(1 - R), marked convexity adjustment), `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`; `Quote`, `MarketQuotes` |
 | `pricers.py` | `DeterministicPricer` (DCB: K = 1, no options), `LGCMPricer` (collateral convexity of the foreign coupon, Libor or compounded; exact one factor swaption, Gaussian swaption variance with separate fixed/float schedules, FX vol, CB vol exact and Gaussian) |
 | `curve_calibration.py` | generic sequential curve bootstrap with a convexity provider; `calibrate_curves(quotes)` is the DCB market practice |
+| `curve_fitting.py` | global alternative to the bootstrap (kept for comparison): `CurveSpec` (flat nodes, spline knots), `default_curve_spec`, `fit_curves` (nested curve sets by dependency level, Levenberg–Marquardt, optional curvature penalty, weights), `calibrate_curves_global`, `GlobalFit` (curve method of `ModelSpec(curves=...)`) |
 | `calibration.py` | `ModelSpec`, `BlockSpec`, `default_spec`, `calibrate(quotes, spec) -> Calibration`: Algorithm "LGCM calibration" of the notes |
 | `market_data.py` | `example_setup()`, `example_quotes(market)` for `MARKETS` = EURUSD (USD SOFR / EUR ESTR, EURIBOR 3M), GBPUSD, USDJPY (inverted quotation): illustrative, not live data |
 | `calibration_check.py` | `analytic_report(cal)` and `mc_report(cal, n_paths, seed, compounding_step=None)`: every quote repriced in closed form and by Monte Carlo (rows with market, model, error, standard error); compounded RFR coupons valued on paths by `CouponPaths` (fixing dates streamed, exact controls), `coupon_convexity_mc` for one coupon |
 | `schemes.py` (`ExactScheme.simulate_dates`), `montecarlo.py` (`Simulator.simulate_dates`) | the LGCM state at every date of a grid along the same paths, in one pass; `stream` dates are passed to `on_date` without being stored |
 | `tests/test_ois.py` | compounded RFR coupons: closed forms against the exact benchmark, coupon-aware curves, pricers and calibration, the three markets, inverted FX, Monte Carlo of compounded coupons |
 | `tests/test_curves.py` | curves, instruments and the deterministic curve bootstrap |
+| `tests/test_curve_fitting.py` | hybrid curves, rate futures, the global fit against the bootstrap, LGCM calibration with global curves |
 | `tests/test_calibration.py` | LGCM pricer, calibration and repricing checks (the Monte Carlo ones are marked `slow`) |
 | `repo.py` | bonds and repo (McCloud, *Repo convexity*): `RepoModel` (LGCM with block f = bond curve, c = discounting basis, no d factor, zero FX vol), `BondCurves`; `repo_convexity` (ln K^{repo}), `maturity_adjustment`, `forwardness_adjustment`, `repo_rate` (ACT/360 or ACT/365 accrual), `repo_discount_factor`; McCloud's Hull-White closed forms `hw_*`; `CouponBond`, `coupon_repo_rate` (frozen weights) and `coupon_repo_rate_exact` (Gauss–Hermite); `mc_repo_rate` |
 | `tests/test_repo.py` | the checks of Remark "Verification" of section "Bonds, repo and repo convexity" |
@@ -56,6 +58,8 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | Proposition "Exact one factor swaption" | `test_native_swaption_exact_closed_form_matches_quadrature`, `test_lgcm_pricer_swaption_dispatch_both_blocks` | adaptive quadrature of E[V^+] (rel. 1e-9) |
 | Proposition "Gaussian swaption variance with separate fixed and floating schedules" | `test_gaussian_swaption_variance_converges_to_exact`, `test_gaussian_variance_matches_gaussian_approx_native`, `test_multifactor_gaussian_variance_vs_brute_force_and_pricer_fallback` | exact price: error O(λ²) (measured ratios 4.0002, 4.0010, not proved); `gaussian_approx.approx_native` (1e-12); quadrature loadings (1e-8) |
 | Resetting CB spread with Libor convexity K_j, FX vol | `test_resetting_ccs_without_convexity`, `test_lgcm_pricer_ccs_and_cb_vol_match_gaussian_approx`, `test_lgcm_pricer_convexity_and_fx_vol` | `gaussian_approx` (independent code), `market.libor_convexity`, `fx_total_variance` |
+| Definition "Hybrid forward curve", Proposition "Smooth forward section" | `test_hybrid_integral_matches_quadrature`, `test_hybrid_parameters_are_flat_forwards_then_section_averages`, `test_hybrid_forward_continuity_and_smoothness`, `test_roughness_is_the_l2_norm_of_the_forward_slope`, `test_spline_minimises_the_forward_slope`, `test_spline_through_forward_knot_values_zig_zags` | quadrature (1e-14); orthogonality int I'' phi'' = 0 (2.5e-16), negative control with a clamped end (-2.45); a spline through free forward knot values zig-zags (4.21, 3.11, 3.82, 2.98, 4.58 ... %) |
+| Algorithm "Nested global curve calibration", Remark "Global fit against the bootstrap" | `test_flat_spec_reproduces_the_bootstrap`, `test_global_fit_round_trip`, `test_example_markets_exact_fit_and_smooth_forwards`, `test_futures_in_bootstrap_and_least_squares`, `test_underdetermined_needs_smoothing_and_smoothing_trades_fit_for_roughness`, `test_lgcm_calibration_with_global_curves` | flat nodes at every pillar = bootstrap (1e-12); round trip of hybrid curves (1e-11), nested and single problem; exact fit 3e-12 bp; futures: least squares first order conditions J^T r = 0 |
 | Algorithm "LGCM calibration" | `test_calibration_reprices_all_quotes`, `test_round_trip_recovers_parameters`, `test_input_order_does_not_matter`, `test_cb_vols_not_moved_by_later_expiries`, `test_two_factor_domestic_block` | all 65 quotes repriced (measured max errors 2e-16, FX forwards 1.4e-12 pips); round trip to 1e-8; fixed point in 5 iterations |
 | DCB limit, collateral convexity of the curves | `test_dcb_limit`, `test_collateral_convexity_moves_the_long_end` | sigma^c = 0 gives the DCB curve (1e-14) |
 | Variance squeeze (Proposition "Calibration constraints"), missing quotes | `test_variance_squeeze_raises`, `test_swaption_squeeze_at_later_expiry_raises`, `test_zero_cb_vol_raises_with_label`, `test_cb_vol_squeeze_at_later_expiry_raises`, `test_duplicate_expiry_raises`, `test_calibrate_without_fd_quotes_raises`, `test_marked_blocks_are_reported` | `CalibrationError` naming the instrument; `diagnostics["marked"]` |
@@ -112,6 +116,39 @@ The 30Y Z^{f|d} zero rate of the LGCM is 3.75 bp above the DCB one calibrated to
 The marimo notebook `python/notebooks/lgcm_calibration.py` shows the calibration results, the
 repricing tables, the impact of the marked parameters and the collateral convexity. From the
 repository root: `marimo edit python/notebooks/lgcm_calibration.py` (or `marimo run` for the app view).
+
+## Global curve calibration
+
+`curve_fitting` is the alternative to the sequential bootstrap, which is unchanged (and is still the
+default of `calibrate`). Each curve is a `HybridCurve`: flat forwards up to the last short-end node (futures end
+dates, FX forward maturities, or the first pillar) and, beyond it, a cubic spline of the integrated forward through the
+section averages (forward continuous at the junction, C^1 after, flat after the last knot). The curves are fitted
+by Levenberg–Marquardt, nested by dependency level (Z^{d|d}, Z^{f|f}, then Z^{f|d}), on residuals in bp / pips.
+Run from `python/`:
+
+```python
+from convexity.market_data import example_quotes
+from convexity.instruments import Swaption, FXOption, CurrencyBasisSwaption
+from convexity.curve_calibration import calibrate_curves
+from convexity.curve_fitting import calibrate_curves_global, GlobalFit, CurveSpec
+from convexity.calibration import calibrate, default_spec
+import dataclasses
+
+mq = example_quotes(futures=True).without(Swaption, FXOption, CurrencyBasisSwaption)   # + 8 SOFR futures
+boot, brep = calibrate_curves(mq)              # bootstrap: the 1Y / 2Y swaps become checks
+glob, rep = calibrate_curves_global(mq)        # least squares over futures and swaps
+[(r.label, r.residual) for r in rep.rows]      # residuals in bp (futures: bp of rate, FX: pips)
+glob[mq.setup.key("dd")].instantaneous_forward(10.0)
+
+cal = calibrate(example_quotes(), dataclasses.replace(default_spec(), curves=GlobalFit()))   # LGCM, ~11 s
+```
+
+Measured (EURUSD): exact fit to 1.5e-12 bp in 1.1 s (bootstrap 0.04 s); hybrid minus bootstrap zero rates
++7.65 / -0.56 / +2.59 / -5.99 bp for Z^{d|d} at 1.5 / 4 / 25 / 40Y (interpolation and extrapolation, the
+pillars agree); with the SOFR futures the least squares residuals are at most 0.038 bp (rms 0.012 bp), where the
+bootstrap leaves the 1Y / 2Y swaps 0.050 / 0.026 bp off; LGCM with `GlobalFit()`: all 65 quotes repriced, 5
+fixed point iterations, vols within 1.2% of the bootstrap calibration, 30Y collateral convexity 3.76 bp
+(bootstrap 3.75 bp). See Remark "Global fit against the bootstrap" of the notes.
 
 ## Coupon types and markets
 
