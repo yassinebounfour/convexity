@@ -14,18 +14,38 @@ def _():
         sys.path.insert(0, _py)
 
     import marimo as mo
-    import matplotlib.pyplot as plt
     import numpy as np
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
     from convexity import repo
 
     # colour-blind-safe palette (Okabe-Ito), one colour per object across all panels
     C = {"bond": "#0072B2", "repo": "#D55E00", "ois": "#009E73", "M": "#CC79A7", "F": "#E69F00",
          "exact": "#000000", "approx": "#56B4E9", "grey": "#666666"}
-    plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False, "axes.grid": True,
-                         "grid.alpha": 0.25, "figure.facecolor": "white", "axes.facecolor": "white",
-                         "font.size": 10, "axes.titlesize": 11, "axes.titleweight": "bold"})
-    return C, mo, np, plt, repo
+    DASH = {"-": "solid", "--": "dash", ":": "dot"}
+
+    def style(fig, width=1000, height=380):
+        """Common look: white background, light grid, legend above the panels."""
+        fig.update_layout(template="simple_white", width=width, height=height, font=dict(size=12),
+                          margin=dict(l=60, r=20, t=80, b=55), hovermode="x unified",
+                          legend=dict(orientation="h", x=0, y=1.14, xanchor="left", yanchor="bottom"))
+        fig.update_xaxes(showgrid=True, gridcolor="#e8e8e8", ticks="outside")
+        fig.update_yaxes(showgrid=True, gridcolor="#e8e8e8", ticks="outside")
+        return fig
+
+    def panel_legends(fig, n):
+        """One horizontal legend above each of the n panels (traces pick theirs with legend="legend2", ...)."""
+        for k in range(1, n + 1):
+            x0 = fig.layout[f"xaxis{k if k > 1 else ''}"].domain[0]
+            fig.update_layout({f"legend{k if k > 1 else ''}": dict(orientation="h", x=x0, y=1.14, xanchor="left",
+                                                                  yanchor="bottom", font=dict(size=11))})
+        return fig
+
+    def line(x, y, color, name, dash="-", show=True, group=None, **kw):
+        return go.Scatter(x=x, y=y, mode="lines", line=dict(color=color, dash=DASH.get(dash, dash), width=2),
+                          name=name, showlegend=show, legendgroup=group or name, **kw)
+    return C, go, line, make_subplots, mo, np, panel_legends, repo, style
 
 
 @app.cell
@@ -83,34 +103,35 @@ def _(mo):
 
 
 @app.cell
-def _(C, conv_bp, np, plt, repo, rm):
-    _fig, _ax = plt.subplots(1, 3, figsize=(13, 3.6))
+def _(C, conv_bp, go, line, make_subplots, np, panel_legends, repo, rm, style):
+    _fig = make_subplots(1, 3, horizontal_spacing=0.08, subplot_titles=[
+        "vs forwardness (bond 10Y after e)", "vs residual maturity (3M repo)", "split, 3M repo on a bond 10Y after s"])
     _tau = np.linspace(0.0, 10.0, 41)
     for _d, _ls in [(1 / 12, ":"), (0.25, "--"), (1.0, "-")]:
-        _ax[0].plot(_tau, [conv_bp(rm, t, t + _d, t + _d + 10.0) for t in _tau], color=C["repo"], ls=_ls,
-                    label=f"term {12 * _d:.0f}M")
-    _ax[0].set(title="vs forwardness (bond 10Y after e)", xlabel="forward start s (years)", ylabel="convexity (bp)")
-    _ax[0].legend(frameon=False)
+        _fig.add_trace(line(_tau, [conv_bp(rm, t, t + _d, t + _d + 10.0) for t in _tau], C["repo"],
+                            f"term {12 * _d:.0f}M", _ls), 1, 1)
     _mu = np.linspace(0.0, 30.0, 61)
     for _s, _ls in [(0.0, "-"), (2.0, "--"), (5.0, ":")]:
-        _ax[1].plot(_mu, [conv_bp(rm, _s, _s + 0.25, _s + 0.25 + m) for m in _mu], color=C["repo"], ls=_ls,
-                    label=f"start {_s:.0f}Y")
-    _ax[1].set(title="vs residual maturity (3M repo)", xlabel="T − e (years)", ylabel="convexity (bp)")
-    _ax[1].legend(frameon=False)
+        _fig.add_trace(line(_mu, [conv_bp(rm, _s, _s + 0.25, _s + 0.25 + m) for m in _mu], C["repo"],
+                            f"start {_s:.0f}Y", _ls, legend="legend2"), 1, 2)
     _starts = np.array([0.0, 1.0, 2.0, 5.0, 10.0])
     _e, _T = 0.25, 10.0
     _Mp = [1e4 * (repo.maturity_adjustment(rm, 0, s + _e, s + _T) - repo.maturity_adjustment(rm, 0, s, s + _T)) / repo.accrual(s, s + _e)
            for s in _starts]
     _Fp = [1e4 * repo.forwardness_adjustment(rm, 0, s, s + _e, s + _T) / repo.accrual(s, s + _e) if s > 0 else 0.0
            for s in _starts]
-    _x = np.arange(len(_starts))
-    _ax[2].bar(_x - 0.2, _Mp, 0.4, color=C["M"], label="maturity M")
-    _ax[2].bar(_x + 0.2, _Fp, 0.4, color=C["F"], label="forwardness F")
-    _ax[2].set_xticks(_x, [f"{s:.0f}Y" for s in _starts])
-    _ax[2].set(title="split, 3M repo on a bond 10Y after s", xlabel="forward start", ylabel="contribution (bp, ≈ ln K / δ)")
-    _ax[2].axhline(0, color=C["grey"], lw=0.8)
-    _ax[2].legend(frameon=False)
-    _fig.tight_layout()
+    _lab = [f"{s:.0f}Y" for s in _starts]
+    _fig.add_trace(go.Bar(x=_lab, y=_Mp, name="maturity M", marker_color=C["M"], legend="legend3"), 1, 3)
+    _fig.add_trace(go.Bar(x=_lab, y=_Fp, name="forwardness F", marker_color=C["F"], legend="legend3"), 1, 3)
+    _fig.update_layout(barmode="group", bargap=0.3)
+    _fig.add_hline(y=0, line=dict(color=C["grey"], width=1), row=1, col=3)
+    _fig.update_xaxes(title_text="forward start s (years)", row=1, col=1)
+    _fig.update_xaxes(title_text="T − e (years)", row=1, col=2)
+    _fig.update_xaxes(title_text="forward start", row=1, col=3)
+    _fig.update_yaxes(title_text="convexity (bp)", row=1, col=1)
+    _fig.update_yaxes(title_text="contribution (bp, ≈ ln K / δ)", row=1, col=3)
+    style(_fig, width=1250)
+    panel_legends(_fig, 3)
     _fig
     return
 
@@ -127,22 +148,24 @@ def _(mo):
 
 
 @app.cell
-def _(C, conv_bp, eps, np, plt, repo, sigma, theta):
-    _fig, _ax = plt.subplots(1, 2, figsize=(10, 3.6))
+def _(C, conv_bp, eps, line, make_subplots, np, panel_legends, repo, sigma, style, theta):
+    _fig = make_subplots(1, 2, horizontal_spacing=0.1,
+                         subplot_titles=["3M repo in 2Y on a 12Y bond", "vs θ (ρ = −0.5, κ = 0.4)"])
     _rhos = np.linspace(-0.9, 0.9, 19)
     for _k, _ls in [(0.1, ":"), (0.4, "--"), (1.5, "-")]:
-        _ax[0].plot(_rhos, [conv_bp(repo.RepoModel.hull_white(theta.value, sigma.value, _k, eps.value, r), 2.0, 2.25, 12.25)
-                            for r in _rhos], color=C["repo"], ls=_ls, label=f"κ = {_k}")
-    _ax[0].set(title="3M repo in 2Y on a 12Y bond", xlabel="ρ", ylabel="convexity (bp)")
-    _ax[0].axhline(0, color=C["grey"], lw=0.8)
-    _ax[0].legend(frameon=False)
+        _fig.add_trace(line(_rhos, [conv_bp(repo.RepoModel.hull_white(theta.value, sigma.value, _k, eps.value, r), 2.0, 2.25, 12.25)
+                                    for r in _rhos], C["repo"], f"κ = {_k}", _ls), 1, 1)
+    _fig.add_hline(y=0, line=dict(color=C["grey"], width=1), row=1, col=1)
     _ths = np.linspace(0.01, 0.5, 25)
     for _mu, _ls in [(2.0, ":"), (10.0, "--"), (30.0, "-")]:
-        _ax[1].plot(_ths, [conv_bp(repo.RepoModel.hull_white(th, sigma.value, 0.4, eps.value, -0.5), 2.0, 2.25, 2.25 + _mu)
-                           for th in _ths], color=C["repo"], ls=_ls, label=f"T − e = {_mu:.0f}Y")
-    _ax[1].set(title="vs θ (ρ = −0.5, κ = 0.4)", xlabel="θ", ylabel="convexity (bp)")
-    _ax[1].legend(frameon=False)
-    _fig.tight_layout()
+        _fig.add_trace(line(_ths, [conv_bp(repo.RepoModel.hull_white(th, sigma.value, 0.4, eps.value, -0.5), 2.0, 2.25, 2.25 + _mu)
+                                   for th in _ths], C["repo"], f"T − e = {_mu:.0f}Y", _ls, legend="legend2"), 1, 2)
+    _fig.update_xaxes(title_text="ρ", row=1, col=1)
+    _fig.update_xaxes(title_text="θ", row=1, col=2)
+    _fig.update_yaxes(title_text="convexity (bp)", row=1, col=1)
+    _fig.update_yaxes(title_text="convexity (bp)", row=1, col=2)
+    style(_fig)
+    panel_legends(_fig, 2)
     _fig
     return
 
@@ -161,27 +184,28 @@ def _(mo):
 
 
 @app.cell
-def _(C, cv, eps, kappa, np, plt, repo, rho, rm, sigma, theta):
+def _(C, cv, eps, kappa, line, make_subplots, np, panel_legends, repo, rho, rm, sigma, style, theta):
     _e = np.linspace(0.05, 30.0, 120)
     _pb = np.array([float(cv.Zbond(x)) for x in _e])
     _ph = np.array([repo.repo_discount_factor(rm, cv, x, x + 1e3) for x in _e])
     _po = np.array([float(cv.Zois(x)) for x in _e])
-    _fig, _ax = plt.subplots(1, 2, figsize=(10, 3.6))
+    _fig = make_subplots(1, 2, horizontal_spacing=0.1, subplot_titles=["zero rates", "instantaneous forward spread f̂ − f̄"])
     for _p, _k, _lab in [(_pb, "bond", "bond curve p̄"), (_ph, "repo", "repo curve p̂ (T = ∞)"), (_po, "ois", "OIS curve p")]:
-        _ax[0].plot(_e, -1e2 * np.log(_p) / _e, color=C[_k], label=_lab)
-    _ax[0].set(title="zero rates", xlabel="maturity (years)", ylabel="zero rate (%)")
-    _ax[0].legend(frameon=False)
+        _fig.add_trace(line(_e, -1e2 * np.log(_p) / _e, C[_k], _lab), 1, 1)
     _P = (rho.value, sigma.value, eps.value, theta.value, kappa.value)
     _sp = [1e4 * repo.hw_forward_spread(*_P, 0.0, x) for x in _e]
     _E = 2.0
     _xe = _e[_e >= _E]
     _ext = [1e4 * repo.hw_extrapolate(repo.hw_forward_spread(*_P, 0.0, _E), 0.0, _E, x, theta.value, kappa.value) for x in _xe]
-    _ax[1].plot(_e, _sp, color=C["repo"], label="model spread")
-    _ax[1].plot(_xe, _ext, color=C["exact"], ls="--", label=f"extrapolated from E = {_E:.0f}Y")
-    _ax[1].axvline(_E, color=C["grey"], lw=0.8)
-    _ax[1].set(title="instantaneous forward spread f̂ − f̄", xlabel="maturity (years)", ylabel="spread (bp)")
-    _ax[1].legend(frameon=False)
-    _fig.tight_layout()
+    _fig.add_trace(line(_e, _sp, C["repo"], "model spread", legend="legend2"), 1, 2)
+    _fig.add_trace(line(_xe, _ext, C["exact"], f"extrapolated from E = {_E:.0f}Y", "--", legend="legend2"), 1, 2)
+    _fig.add_vline(x=_E, line=dict(color=C["grey"], width=1), row=1, col=2)
+    _fig.update_xaxes(title_text="maturity (years)", row=1, col=1)
+    _fig.update_xaxes(title_text="maturity (years)", row=1, col=2)
+    _fig.update_yaxes(title_text="zero rate (%)", row=1, col=1)
+    _fig.update_yaxes(title_text="spread (bp)", row=1, col=2)
+    style(_fig)
+    panel_legends(_fig, 2)
     _fig
     return
 
@@ -205,7 +229,7 @@ def _(mo):
 
 
 @app.cell
-def _(C, cv, eps, kappa, np, plt, repo, rm, sigma, theta):
+def _(C, cv, eps, go, kappa, np, repo, rm, sigma, style, theta):
     _cps = np.linspace(0.0, 0.08, 9)
     _s, _e = 1.2, 1.6
     _fwd = (cv.Zbond(_s) / cv.Zbond(_e) - 1.0) / repo.accrual(_s, _e)
@@ -217,16 +241,22 @@ def _(C, cv, eps, kappa, np, plt, repo, rm, sigma, theta):
         _z0.append(1e4 * (_base - _fwd))
         _ex.append(1e4 * (repo.coupon_repo_rate_exact(rm, cv, _b, _s, _e) - _base))
         _ap.append(1e4 * (repo.coupon_repo_rate(rm, cv, _b, _s, _e) - repo.coupon_repo_rate(_r0, cv, _b, _s, _e)))
-    _fig, _ax = plt.subplots(figsize=(6.5, 3.9))
-    _ax.plot(1e2 * _cps, _z0, color=C["grey"], marker="s", label="ρ = 0 part (basis on the passed-through coupon)")
-    _ax.plot(1e2 * _cps, _ex, color=C["exact"], marker="o", label="convexity, exact (quadrature)")
-    _ax.plot(1e2 * _cps, _ap, color=C["approx"], ls="--", label="convexity, frozen weights")
-    _ax.axhline(0, color=C["grey"], lw=0.8)
     _gap = max(abs(a - x) for a, x in zip(_ap, _ex))
-    _ax.set(title=f"repo rate minus bond forward, 10Y coupon bond\nfrozen weights off by at most {_gap:.4f}bp",
-            xlabel="coupon (%)", ylabel="contribution (bp)")
-    _ax.legend(frameon=False, fontsize=8)
-    _fig.tight_layout()
+    _x = 1e2 * _cps
+    _fig = go.Figure([
+        go.Scatter(x=_x, y=_z0, mode="lines+markers", line=dict(color=C["grey"], width=2), marker=dict(symbol="square", size=7),
+                   name="ρ = 0 part (basis on the passed-through coupon)"),
+        go.Scatter(x=_x, y=_ex, mode="lines+markers", line=dict(color=C["exact"], width=2), marker=dict(size=7),
+                   name="convexity, exact (quadrature)"),
+        go.Scatter(x=_x, y=_ap, mode="lines", line=dict(color=C["approx"], width=2, dash="dash"), name="convexity, frozen weights")])
+    _fig.add_hline(y=0, line=dict(color=C["grey"], width=1))
+    _fig.update_layout(title=dict(text=f"repo rate minus bond forward, 10Y coupon bond (frozen weights off by at most {_gap:.4f}bp)",
+                                  font=dict(size=13), x=0, y=0.97))
+    _fig.update_xaxes(title_text="coupon (%)")
+    _fig.update_yaxes(title_text="contribution (bp)")
+    style(_fig, width=800, height=440)
+    _fig.update_layout(margin=dict(t=110), legend=dict(orientation="v", x=0, y=1.02, yanchor="bottom"),
+                       title=dict(y=0.98))
     _fig
     return
 

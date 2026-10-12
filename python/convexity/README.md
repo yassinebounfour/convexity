@@ -23,6 +23,9 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `payoffs.py` | `Payoff` hierarchy and `price(sim, payoffs, curves, n_paths, seed)` |
 | `mc_verification.py` | Monte Carlo verification of the approximations; `python -m convexity.mc_verification` prints the full report (~2.5 min) |
 | `gaussian_approx.py` | Gaussian approximations of the forward swap rate Y^{f\|d} and the resetting currency basis spread B^{f/d\|d,r}, and their exact benchmark by 2D Gauss–Hermite quadrature |
+| `correlations.py` | terminal correlations of `LogFX(T)` and native `SwapRate(ccy, T0, tenor)` (CMS fixings), same expiry or intertemporal: `correlation_approx` (closed form, frozen-weights gradients and cross-date covariance integrals, measure independent), `correlation_exact` (joint law of the exact transitions under Q^{d,RN} or Q^{d\|d,T*}, Gauss–Hermite), `correlation_mc` (exact scheme, weighted for Q^{d\|d,T*}, delta-method s.e., optional control variate by the linearised observables) |
+| `tests/test_correlations.py` | the checks of Remark "Verification" of section "Correlations of FX and swap rates" |
+| `figures.py` | `python -m convexity.figures` (~2 min) regenerates the plotly figures (vector PDF via kaleido) and LaTeX tables of the notes in `docs/figures/`: forwards bootstrap vs hybrid, futures residuals and locality, bootstrap vs global fit per market, zig-zag control, correlation term structures, tenor and intertemporal correlations, convergence and the correlation verification table |
 | `tests/test_lgcm.py` | the checks quoted in the verification remarks of the notes |
 | `tests/test_montecarlo.py` | reduced Monte Carlo checks (4 standard error tolerance, fixed seeds) |
 | `tests/test_payoffs.py` | Monte Carlo prices of all payoffs against LGCM closed forms, model-free prices in the QGCM, put-call parities |
@@ -60,6 +63,7 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | Resetting CB spread with Libor convexity K_j, FX vol | `test_resetting_ccs_without_convexity`, `test_lgcm_pricer_ccs_and_cb_vol_match_gaussian_approx`, `test_lgcm_pricer_convexity_and_fx_vol` | `gaussian_approx` (independent code), `market.libor_convexity`, `fx_total_variance` |
 | Definition "Hybrid forward curve", Proposition "Smooth forward section" | `test_hybrid_integral_matches_quadrature`, `test_hybrid_parameters_are_flat_forwards_then_section_averages`, `test_hybrid_forward_continuity_and_smoothness`, `test_roughness_is_the_l2_norm_of_the_forward_slope`, `test_spline_minimises_the_forward_slope`, `test_spline_through_forward_knot_values_zig_zags` | quadrature (1e-14); orthogonality int I'' phi'' = 0 (2.5e-16), negative control with a clamped end (-2.45); a spline through free forward knot values zig-zags (4.21, 3.11, 3.82, 2.98, 4.58 ... %) |
 | Algorithm "Nested global curve calibration", Remark "Global fit against the bootstrap" | `test_flat_spec_reproduces_the_bootstrap`, `test_global_fit_round_trip`, `test_example_markets_exact_fit_and_smooth_forwards`, `test_futures_in_bootstrap_and_least_squares`, `test_underdetermined_needs_smoothing_and_smoothing_trades_fit_for_roughness`, `test_lgcm_calibration_with_global_curves` | flat nodes at every pillar = bootstrap (1e-12); round trip of hybrid curves (1e-11), nested and single problem; exact fit 3e-12 bp; futures: least squares first order conditions J^T r = 0 |
+| Proposition "Gaussian approximation of terminal correlations", Remark "Exact benchmark and Monte Carlo estimator" | `test_state_covariance_matches_the_transition_law`, `test_swap_gradient_is_the_swaption_gradient`, `test_swap_value_matches_the_simulator_reconstruction`, `test_linear_observables_are_exact`, `test_quadrature_is_converged`, `test_gaussian_approximation_error_is_second_order`, `test_mc_with_control_matches_exact_and_rejects_the_approximation`, `test_plain_mc_matches_exact`, `test_measures_differ_at_second_order`, `test_stderr_is_calibrated` | closed-form state covariances = transition law (1e-16); approx error O(lambda^2) (ratios 4.00 +- 0.02, measured, not proved); MC with control within 4 s.e. of the exact quadrature under both measures, approximation rejected at 28-57 s.e. (RN) |
 | Algorithm "LGCM calibration" | `test_calibration_reprices_all_quotes`, `test_round_trip_recovers_parameters`, `test_input_order_does_not_matter`, `test_cb_vols_not_moved_by_later_expiries`, `test_two_factor_domestic_block` | all 65 quotes repriced (measured max errors 2e-16, FX forwards 1.4e-12 pips); round trip to 1e-8; fixed point in 5 iterations |
 | DCB limit, collateral convexity of the curves | `test_dcb_limit`, `test_collateral_convexity_moves_the_long_end` | sigma^c = 0 gives the DCB curve (1e-14) |
 | Variance squeeze (Proposition "Calibration constraints"), missing quotes | `test_variance_squeeze_raises`, `test_swaption_squeeze_at_later_expiry_raises`, `test_zero_cb_vol_raises_with_label`, `test_cb_vol_squeeze_at_later_expiry_raises`, `test_duplicate_expiry_raises`, `test_calibrate_without_fd_quotes_raises`, `test_marked_blocks_are_reported` | `CalibrationError` naming the instrument; `diagnostics["marked"]` |
@@ -149,6 +153,29 @@ pillars agree); with the SOFR futures the least squares residuals are at most 0.
 bootstrap leaves the 1Y / 2Y swaps 0.050 / 0.026 bp off; LGCM with `GlobalFit()`: all 65 quotes repriced, 5
 fixed point iterations, vols within 1.2% of the bootstrap calibration, 30Y collateral convexity 3.76 bp
 (bootstrap 3.75 bp). See Remark "Global fit against the bootstrap" of the notes.
+
+## Correlations
+
+`correlations.py` (section "Correlations of FX and swap rates" of the notes). Run from `python/`:
+
+```python
+from convexity.lgcm import default_model
+from convexity.market import InitialCurves
+from convexity.correlations import LogFX, SwapRate, correlation_approx, correlation_exact, correlation_mc
+
+m, cv = default_model(), InitialCurves()          # or cal.model, cal.curves from calibrate(...)
+fx, cms = LogFX(5.0), SwapRate("d", 5.0, 10.0)   # ln x_5 and the 5Y x 10Y domestic swap rate
+correlation_approx(m, cv, fx, cms).corr           # closed form, 0.33970
+correlation_exact(m, cv, fx, cms).corr            # Q^{d,RN}, 0.33952; measure="Tfwd", Tstar=15.0 for Q^{d|d,15}
+correlation_mc(m, cv, fx, cms, 2**17, seed=1, control=True)   # 0.33952 +- 3e-6 (0.3 s)
+correlation_exact(m, cv, SwapRate("d", 5.0, 2.0), cms)        # two tenors, same expiry
+correlation_exact(m, cv, SwapRate("d", 2.0, 10.0), cms)       # intertemporal
+```
+
+The Gaussian approximation is off by 2e-5 to 2e-4 on the test model, O(lambda^2) under vol scaling. The
+control variate (linearised observables, whose correlation is the closed form) divides the Monte Carlo standard
+error by about 10^3 under Q^{d,RN}. The figures and the verification table of the notes come from
+`python -m convexity.figures`.
 
 ## Coupon types and markets
 

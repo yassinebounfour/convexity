@@ -17,8 +17,9 @@ def _():
     from dataclasses import replace
 
     import marimo as mo
-    import matplotlib.pyplot as plt
     import numpy as np
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
     from convexity.calibration import BlockSpec, CalibrationError, ModelSpec, calibrate, default_spec
     from convexity.calibration_check import analytic_report, mc_report
@@ -32,12 +33,31 @@ def _():
     # colour-blind-safe palette (Okabe-Ito), one colour per object across all panels
     C = {"lgcm": "#0072B2", "dcb": "#D55E00", "d": "#009E73", "f": "#CC79A7", "c": "#E69F00", "x": "#7F7F7F",
          "zfd": "#000000", "zdf": "#56B4E9", "grey": "#666666"}
-    plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False, "axes.grid": True,
-                         "grid.alpha": 0.25, "figure.facecolor": "white", "axes.facecolor": "white",
-                         "font.size": 10, "axes.titlesize": 11, "axes.titleweight": "bold"})
+    DASH = {"-": "solid", "--": "dash", ":": "dot"}
+
+    def style(fig, width=1000, height=380, legend_y=1.14):
+        """Common look: white background, light grid, legend above the panels."""
+        fig.update_layout(template="simple_white", width=width, height=height, font=dict(size=12),
+                          margin=dict(l=65, r=20, t=80, b=55), hovermode="x unified",
+                          legend=dict(orientation="h", x=0, y=legend_y, xanchor="left", yanchor="bottom"))
+        fig.update_xaxes(showgrid=True, gridcolor="#e8e8e8", ticks="outside")
+        fig.update_yaxes(showgrid=True, gridcolor="#e8e8e8", ticks="outside")
+        return fig
+
+    def panel_legends(fig, cells, dy=0.03):
+        """One legend above each panel: cells = {legend name: (xaxis name, yaxis name)}."""
+        for name, (xa, ya) in cells.items():
+            fig.update_layout({name: dict(orientation="h", x=fig.layout[xa].domain[0], y=fig.layout[ya].domain[1] + dy,
+                                          xanchor="left", yanchor="bottom", font=dict(size=11))})
+        return fig
+
+    def line(x, y, color, name, dash="-", width=2, show=True, **kw):
+        return go.Scatter(x=x, y=y, mode="lines", line=dict(color=color, dash=DASH.get(dash, dash), width=width),
+                          name=name, showlegend=show, **kw)
     return (BlockSpec, C, CalibrationError, Coupon, CurrencyBasisSwaption, FXForward, FXOption, Index, LIBOR, MARKETS,
             ModelSpec, ResettingCCS, Swap, Swaption, analytic_report, calibrate, calibrate_curves, default_spec,
-            example_quotes, functools, fx_collateral_convexity, mc_report, mo, np, plt, replace)
+            example_quotes, functools, fx_collateral_convexity, go, line, make_subplots, mc_report, mo, np,
+            panel_legends, replace, style)
 
 
 @app.cell
@@ -217,7 +237,7 @@ def _(CalibrationError, beta_c, beta_f, build, calibrated, cbscale, dcb_for, mar
 
 
 @app.cell
-def _(C, MQ, cal, dcb, mo, np, plt):
+def _(C, MQ, cal, dcb, go, line, make_subplots, mo, np, panel_legends, style):
     _T = np.linspace(0.25, 30, 120)
 
     def _zr(curves, kind):
@@ -228,37 +248,31 @@ def _(C, MQ, cal, dcb, mo, np, plt):
         return np.array([-(np.log(curves.Z0("fd", t + h) / curves.Z0("ff", t + h))
                            - np.log(curves.Z0("fd", t) / curves.Z0("ff", t))) / h for t in _T]) * 1e4
 
-    fig, ax = plt.subplots(2, 2, figsize=(11, 7.5), constrained_layout=True)
+    fig = make_subplots(2, 2, vertical_spacing=0.3, horizontal_spacing=0.1, subplot_titles=[
+        "Zero rates by currency and collateral", "Instantaneous collateral basis forward q",
+        "Calibrated volatility levels λ<sup>d</sup>, λ<sup>f</sup>, λ<sup>c</sup>", "Calibrated FX volatility σ<sup>x</sup>"])
     _fc, _fcol = MQ.setup.foreign_collateral.currency, MQ.setup.foreign_collateral.name.split("_")[-1]
-    _a = ax[0, 0]
-    for _k, _lab, _col, _ls in [("dd", "$Z^{d|d}$ USD, SOFR", C["d"], "-"), ("ff", f"$Z^{{f|f}}$ {_fc}, {_fcol}", C["f"], "-"),
-                                ("fd", f"$Z^{{f|d}}$ {_fc}, SOFR coll.", C["zfd"], "-"),
-                                ("df", f"$Z^{{d|f}}$ USD, {_fcol} coll.", C["zdf"], "-")]:
-        _a.plot(_T, _zr(cal.curves, _k), color=_col, ls=_ls, label=_lab + " (LGCM)")
-    for _k, _col in [("fd", C["dcb"])]:
-        _a.plot(_T, _zr(dcb, _k), color=_col, ls=(0, (4, 2)), lw=2, zorder=5, label="$Z^{f|d}$ (DCB, vermillion dashed)")
-    _a.set(title="Zero rates by currency and collateral", xlabel="maturity (years)", ylabel="continuously compounded zero rate (%)")
-    _a.legend(fontsize=8, frameon=False)
-    _a = ax[0, 1]
-    _a.plot(_T, _fwd_q(cal.curves), color=C["lgcm"], label="LGCM")
-    _a.plot(_T, _fwd_q(dcb), color=C["dcb"], ls="--", label="DCB")
-    _a.set(title="Instantaneous collateral basis forward $q$", xlabel="maturity (years)", ylabel="$q$ (bp)")
-    _a.legend(frameon=False)
-    _a = ax[1, 0]
+    for _k, _lab, _col in [("dd", "Z<sup>d|d</sup> USD, SOFR", C["d"]), ("ff", f"Z<sup>f|f</sup> {_fc}, {_fcol}", C["f"]),
+                           ("fd", f"Z<sup>f|d</sup> {_fc}, SOFR coll.", C["zfd"]), ("df", f"Z<sup>d|f</sup> USD, {_fcol} coll.", C["zdf"])]:
+        fig.add_trace(line(_T, _zr(cal.curves, _k), _col, _lab + " (LGCM)"), 1, 1)
+    fig.add_trace(line(_T, _zr(dcb, "fd"), C["dcb"], "Z<sup>f|d</sup> (DCB)", "--", 2.5), 1, 1)
+    fig.add_trace(line(_T, _fwd_q(cal.curves), C["lgcm"], "q (LGCM)"), 1, 2)
+    fig.add_trace(line(_T, _fwd_q(dcb), C["dcb"], "q (DCB)", "--"), 1, 2)
     for _b, _col in [("d", C["d"]), ("f", C["f"]), ("c", C["c"])]:
         _k, _lam = cal.levels(_b)
-        _a.step(_k, np.r_[_lam, _lam[-1]] * 1e4, where="post", color=_col, label=rf"$\lambda^{_b}$")
-    _a.set(title=r"Calibrated volatility levels $\lambda^d,\lambda^f,\lambda^c$", xlabel="time (years)",
-           ylabel=r"$\lambda$ (bp/yr)", xlim=(0, 25))
-    _a.legend(frameon=False)
-    _a = ax[1, 1]
+        fig.add_trace(line(_k, np.r_[_lam, _lam[-1]] * 1e4, _col, f"λ<sup>{_b}</sup>", line_shape="hv", legend="legend3"), 2, 1)
     _k, _sx = cal.levels("x")
-    _a.step(_k, np.r_[_sx, _sx[-1]] * 100, where="post", color=C["x"], label=r"$\sigma^x$")
-    _a.set(title="Calibrated FX volatility $\\sigma^x$", xlabel="time (years)", ylabel=r"$\sigma^x$ (%)", xlim=(0, 25))
-    _a.legend(frameon=False)
+    fig.add_trace(line(_k, np.r_[_sx, _sx[-1]] * 100, C["x"], "σ<sup>x</sup>", line_shape="hv", legend="legend4"), 2, 2)
+    for _r, _c, _xt, _yt in [(1, 1, "maturity (years)", "zero rate, cont. comp. (%)"), (1, 2, "maturity (years)", "q (bp)"),
+                             (2, 1, "time (years)", "λ (bp/yr)"), (2, 2, "time (years)", "σ<sup>x</sup> (%)")]:
+        fig.update_xaxes(title_text=_xt, row=_r, col=_c, **({"range": [0, 25]} if _r == 2 else {}))
+        fig.update_yaxes(title_text=_yt, row=_r, col=_c)
+    style(fig, width=1100, height=860)
+    # top row: one legend over both panels (colours are per object across the figure); bottom row: one per panel
+    fig.update_layout(margin=dict(t=110), legend=dict(x=0, y=fig.layout.yaxis.domain[1] + 0.06))
+    panel_legends(fig, {"legend3": ("xaxis3", "yaxis3"), "legend4": ("xaxis4", "yaxis4")}, dy=0.035)
     mo.vstack([mo.md("## Calibrated curves and volatilities"), fig])
     return
-
 
 @app.cell
 def _():
@@ -295,7 +309,7 @@ def _(analytic_report, cal, mo, np, unit_scale):
 
 
 @app.cell
-def _(C, Coupon, cal, market, mc_report, mo, npaths, np, plt, run_mc, unit_scale):
+def _(C, Coupon, cal, go, market, mc_report, mo, npaths, np, run_mc, style, unit_scale):
     mo.stop(not run_mc.value, mo.md("## Monte Carlo check\n\nPress *Run Monte Carlo check* above. "
                                     "Note: the result is cleared whenever the model is recalibrated (a slider "
                                     "is released), because this cell depends on the calibration and the button "
@@ -309,14 +323,15 @@ def _(C, Coupon, cal, market, mc_report, mo, npaths, np, plt, run_mc, unit_scale
              if _ois else 0.0)
     _zs = np.nan_to_num(np.array([r.z for r in _rows]))
     _ok = np.abs(_zs) <= 4
-    _fig, _ax = plt.subplots(figsize=(8, 0.17 * len(_rows) + 1.5), constrained_layout=True)
-    _y = np.arange(len(_rows))
-    _ax.barh(_y, _zs, color=np.where(_ok, C["lgcm"], C["dcb"]))
+    _fig = go.Figure(go.Bar(x=_zs, y=[r.label for r in _rows], orientation="h", showlegend=False,
+                            marker_color=np.where(_ok, C["lgcm"], C["dcb"]), hovertemplate="%{y}: z = %{x:.2f}<extra></extra>"))
     for _v in (-4, 4):
-        _ax.axvline(_v, color=C["grey"], ls="--", lw=1)
-    _ax.set(title="Monte Carlo repricing: z = (model - market) / s.e.", xlabel="z-score (dimensionless)",
-            yticks=_y, yticklabels=[r.label for r in _rows], ylim=(len(_rows) - 0.5, -0.5))
-    _ax.tick_params(axis="y", labelsize=7)
+        _fig.add_vline(x=_v, line=dict(color=C["grey"], dash="dash", width=1))
+    _fig.update_yaxes(autorange="reversed", tickfont=dict(size=9))
+    _fig.update_xaxes(title_text="z-score (dimensionless)")
+    _fig.update_layout(title=dict(text="Monte Carlo repricing: z = (model − market) / s.e.", x=0))
+    style(_fig, width=800, height=int(13 * len(_rows) + 140))
+    _fig.update_layout(hovermode="closest", margin=dict(t=50))
     _tab = []
     for r in _rows:
         _u, _sc = unit_scale(r.kind)
@@ -334,9 +349,8 @@ def _(C, Coupon, cal, market, mc_report, mo, npaths, np, plt, run_mc, unit_scale
     """), _fig, mo.ui.table(_tab, page_size=10, selection=None)])
     return
 
-
 @app.cell
-def _(C, cal, dcb, fx_collateral_convexity, mo, np, plt):
+def _(C, cal, dcb, fx_collateral_convexity, line, make_subplots, mo, np, panel_legends, style):
     _m = cal.model
     _j = np.arange(0, 120)
     _cpn = cal.curves.coupon("f")     # the coupon of the foreign floating index of the market
@@ -349,28 +363,23 @@ def _(C, cal, dcb, fx_collateral_convexity, mo, np, plt):
     _off = np.array([cal.curves.x0 * cal.curves.Z0("ff", t) / cal.curves.fx_forward0(t) for t in _T])
     _dzdf = (-np.log(_zdf) / _T + np.log(_off) / _T) * 1e4
 
-    fig2, ax2 = plt.subplots(2, 2, figsize=(11, 7.5), constrained_layout=True)
-    _a = ax2[0, 0]
-    _a.plot(0.25 * _j, _K, color=C["lgcm"], marker=".", ms=3, lw=1)
-    _a.set(title=f"Coupon convexity $K_j-1$ ({_cpn.kind}, quarterly periods)", xlabel="period start (years)",
-           ylabel="$K_j-1$ (bp)")
-    _a = ax2[0, 1]
-    _a.plot(_T, _dfd, color=C["lgcm"])
-    _a.axhline(0, color=C["dcb"], ls="--", label="DCB (zero by definition)")
-    _a.set(title="$Z^{f|d}$ zero rate: LGCM minus DCB", xlabel="maturity (years)", ylabel="difference (bp)")
-    _a.legend(frameon=False)
-    _a = ax2[1, 0]
-    _a.plot(_T, _fxc, color=C["lgcm"], label=r"LGCM: $x^{df|f}/x^{df|d}-1$")
-    _a.axhline(0, color=C["dcb"], ls="--", label="DCB (no convexity)")
-    _a.set(title="FX forward: foreign collateral vs USD collateral", xlabel="maturity (years)",
-           ylabel="relative difference (bp)")
-    _a.legend(frameon=False)
-    _a = ax2[1, 1]
-    _a.plot(_T, _dzdf, color=C["lgcm"])
-    _a.axhline(0, color=C["dcb"], ls="--", label="DCB off-market curve $x_0 Z^{f|f}/F$")
-    _a.set(title="$Z^{d|f}$ zero rate: LGCM minus DCB off-market curve", xlabel="maturity (years)",
-           ylabel="difference (bp)")
-    _a.legend(frameon=False)
+    fig2 = make_subplots(2, 2, vertical_spacing=0.3, horizontal_spacing=0.1, subplot_titles=[
+        f"Coupon convexity K<sub>j</sub> − 1 ({_cpn.kind}, quarterly periods)", "Z<sup>f|d</sup> zero rate: LGCM minus DCB",
+        "FX forward: foreign collateral vs USD collateral", "Z<sup>d|f</sup> zero rate: LGCM minus DCB off-market curve"])
+    fig2.add_trace(line(0.25 * _j, _K, C["lgcm"], "K<sub>j</sub> − 1", width=1, marker=dict(size=4)), 1, 1)
+    fig2.data[-1].mode = "lines+markers"
+    fig2.add_trace(line(_T, _dfd, C["lgcm"], "LGCM", legend="legend2"), 1, 2)
+    fig2.add_trace(line(_T, _fxc, C["lgcm"], "LGCM: x<sup>df|f</sup>/x<sup>df|d</sup> − 1", legend="legend3"), 2, 1)
+    fig2.add_trace(line(_T, _dzdf, C["lgcm"], "LGCM", legend="legend4"), 2, 2)
+    for _r, _c, _lg, _lab in [(1, 2, "legend2", "DCB (zero by definition)"), (2, 1, "legend3", "DCB (no convexity)"),
+                              (2, 2, "legend4", "DCB off-market curve x<sub>0</sub> Z<sup>f|f</sup>/F")]:
+        fig2.add_trace(line(_T, np.zeros_like(_T), C["dcb"], _lab, "--", legend=_lg), _r, _c)
+    for _r, _c, _xt, _yt in [(1, 1, "period start (years)", "K<sub>j</sub> − 1 (bp)"), (1, 2, "maturity (years)", "difference (bp)"),
+                             (2, 1, "maturity (years)", "relative difference (bp)"), (2, 2, "maturity (years)", "difference (bp)")]:
+        fig2.update_xaxes(title_text=_xt, row=_r, col=_c)
+        fig2.update_yaxes(title_text=_yt, row=_r, col=_c)
+    style(fig2, width=1100, height=820)
+    panel_legends(fig2, {'legend': ('xaxis', 'yaxis'), 'legend2': ('xaxis2', 'yaxis2'), 'legend3': ('xaxis3', 'yaxis3'), 'legend4': ('xaxis4', 'yaxis4')}, dy=0.035)
 
     def _at(arr, T):
         return float(arr[np.argmin(abs(_T - T))])
@@ -392,7 +401,7 @@ def _(C, cal, dcb, fx_collateral_convexity, mo, np, plt):
 
 
 @app.cell
-def _(C, Coupon, LIBOR, cal, market, mo, np, plt):
+def _(C, Coupon, LIBOR, cal, line, make_subplots, market, mo, np, panel_legends, style):
     _m = cal.model
     _j = np.arange(0, 120)
     _a0, _b0 = 0.25 * _j, 0.25 * (_j + 1)
@@ -407,23 +416,22 @@ def _(C, Coupon, LIBOR, cal, market, mo, np, plt):
     _gap = [float(np.max(np.abs(_KC - _Km1(Coupon("daily", h))))) for h in _steps]
     _own = cal.curves.setup.foreign_index.coupon.kind
 
-    fig3, ax3 = plt.subplots(1, 3, figsize=(13, 4.2), constrained_layout=True)
-    _a = ax3[0]
-    _a.plot(_a0, _KL * 1e4, color=C["lgcm"], lw=2.5, label="Libor")
-    _a.plot(_a0, _KD * 1e4, color=C["dcb"], lw=1.5, ls="--", label="daily (1/365)")
-    _a.plot(_a0, _KC * 1e4, color=C["d"], lw=1, ls=":", label="continuous")
-    _a.set(title="Coupon convexity $K-1$ per quarterly period", xlabel="period start (years)", ylabel="$K-1$ (bp)")
-    _a.legend(frameon=False)
-    _a = ax3[1]
-    _a.plot(_a0, _d_dl * 1e8, color=C["dcb"], label="daily $-$ Libor")
-    _a.axhline(0, color=C["grey"], lw=0.8)
-    _a.set(title="Daily minus Libor", xlabel="period start (years)", ylabel=r"$K^{daily}-K^{Libor}$ ($10^{-8}$)")
-    _a.legend(frameon=False)
-    _a = ax3[2]
-    _a.plot(_a0, _d_cd * 1e8, color=C["d"], label="continuous $-$ daily")
-    _a.axhline(0, color=C["grey"], lw=0.8)
-    _a.set(title="Continuous minus daily", xlabel="period start (years)", ylabel=r"$K^{cont}-K^{daily}$ ($10^{-8}$)")
-    _a.legend(frameon=False)
+    fig3 = make_subplots(1, 3, horizontal_spacing=0.08, subplot_titles=[
+        "Coupon convexity K − 1 per quarterly period", "Daily minus Libor", "Continuous minus daily"])
+    fig3.add_trace(line(_a0, _KL * 1e4, C["lgcm"], "Libor", width=3.5), 1, 1)
+    fig3.add_trace(line(_a0, _KD * 1e4, C["dcb"], "daily (1/365)", "--"), 1, 1)
+    fig3.add_trace(line(_a0, _KC * 1e4, C["d"], "continuous", ":", 1.5), 1, 1)
+    fig3.add_trace(line(_a0, _d_dl * 1e8, C["dcb"], "daily − Libor", legend="legend2"), 1, 2)
+    fig3.add_trace(line(_a0, _d_cd * 1e8, C["d"], "continuous − daily", legend="legend3"), 1, 3)
+    for _c, _yt in [(1, "K − 1 (bp)"), (2, "K<sup>daily</sup> − K<sup>Libor</sup> (10<sup>−8</sup>)"),
+                    (3, "K<sup>cont</sup> − K<sup>daily</sup> (10<sup>−8</sup>)")]:
+        fig3.update_xaxes(title_text="period start (years)", row=1, col=_c)
+        fig3.update_yaxes(title_text=_yt, row=1, col=_c)
+        if _c > 1:
+            fig3.add_hline(y=0, line=dict(color=C["grey"], width=1), row=1, col=_c)
+    style(fig3, width=1250, height=430)
+    fig3.update_layout(margin=dict(t=115))
+    panel_legends(fig3, {"legend": ("xaxis", "yaxis"), "legend2": ("xaxis2", "yaxis2"), "legend3": ("xaxis3", "yaxis3")}, dy=0.13)
 
     mo.vstack([mo.md(f"""## Coupon comparison on {market.value}: Libor, daily and continuous
 
@@ -445,7 +453,7 @@ def _(C, Coupon, LIBOR, cal, market, mo, np, plt):
 
 
 @app.cell
-def _(C, beta_c, beta_f, cal, cbscale, libor_calibrated, market, mo, np, plt, rho, run_libor):
+def _(C, beta_c, beta_f, cal, cbscale, go, libor_calibrated, line, market, mo, np, rho, run_libor, style):
     _kind = cal.curves.setup.foreign_index.kind
     mo.stop(_kind != "OIS", mo.md(f"## Libor versus compounded coupon in the calibration\n\n{market.value} has a Libor-type "
                                   "floating index, so there is no compounded-coupon variant to compare with; select GBPUSD "
@@ -457,11 +465,13 @@ def _(C, beta_c, beta_f, cal, cbscale, libor_calibrated, market, mo, np, plt, rh
     _T = np.linspace(0.25, 30, 120)
     _zr = lambda c: np.array([-np.log(c.curves.Z0("fd", t)) / t for t in _T]) * 1e4
     _sh = _zr(_lib) - _zr(cal)       # Libor-coupon calibration minus compounded-coupon calibration, bp
-    _fig, _ax = plt.subplots(figsize=(6.5, 3.6), constrained_layout=True)
-    _ax.plot(_T, _sh, color=C["lgcm"])
-    _ax.axhline(0, color=C["grey"], lw=0.8)
-    _ax.set(title="$Z^{f|d}$ zero rate: Libor coupon minus compounded coupon", xlabel="maturity (years)",
-            ylabel="difference (bp)")
+    _fig = go.Figure(line(_T, _sh, C["lgcm"], "Libor − compounded", show=False))
+    _fig.add_hline(y=0, line=dict(color=C["grey"], width=1))
+    _fig.update_layout(title=dict(text="Z<sup>f|d</sup> zero rate: Libor coupon minus compounded coupon", x=0))
+    _fig.update_xaxes(title_text="maturity (years)")
+    _fig.update_yaxes(title_text="difference (bp)")
+    style(_fig, width=720, height=380)
+    _fig.update_layout(margin=dict(t=50))
     mo.vstack([mo.md(f"""## Libor versus compounded coupon in the calibration: {market.value}
 
     The same quotes are calibrated twice: with the market's own compounded overnight coupon (the exact daily
