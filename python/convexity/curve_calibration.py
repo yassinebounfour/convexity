@@ -1,6 +1,6 @@
 """Generic sequential bootstrap of discount curves from linear instruments.
 
-Each linear instrument (Swap, FXForward, ResettingCCS) declares the CurveKey it calibrates, its pillar
+Each linear instrument (Swap, RateFuture, FXForward, ResettingCCS) declares the CurveKey it calibrates, its pillar
 and the curves it depends on. Target curves are built in dependency order. On each curve, the quotes
 are sorted by (priority, pillar); each quote adds a node at its pillar, solved by a 1D root search of
 instrument.quote(pricer) - market value. A quote whose pillar is not beyond the last node of its
@@ -17,10 +17,10 @@ from dataclasses import dataclass, field
 from scipy.optimize import brentq
 
 from .curves import CurveSet, DiscountCurveKey, PiecewiseFlatCurve, SpreadCurve
-from .instruments import FXForward, ResettingCCS, Swap
+from .instruments import FXForward, RateFuture, ResettingCCS, Swap
 from .pricers import DeterministicPricer
 
-LINEAR = (Swap, FXForward, ResettingCCS)
+LINEAR = (Swap, RateFuture, FXForward, ResettingCCS)
 
 
 class CalibrationError(Exception):
