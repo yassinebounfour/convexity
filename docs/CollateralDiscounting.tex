@@ -187,7 +187,7 @@ Remaining open points found on the way: the Gaussian approximations are for a si
 Open points as of 2026-10-13 (review of the notes):
 \begin{enumerate}
 \item Deterministic volatility models: the dynamic of the currency basis spread (still ``$dB = ??$''), the collateral convexity of resetting forward Libors (marked ``???'') and of currency basis spreads (empty subsection), the investigation of the funding spread assumption in the Libor collateral convexity, and the question whether the convexity adjustments of $Z^{f|d}$ and $Z^{d|f}$ offset or add up (the calibration notebook computes both).
-\item Calibration: caplets are not calibrated, and mean reversions, correlations and factor weights are marked; the futures convexity adjustment is marked, not computed from the LGCM; correlations are for native swap rates only, not $Y^{f|d}$.
+\item Calibration: caplets are priced (\autoref{prop:lgcm_caplet}) but not calibrated, and mean reversions, correlations and factor weights are marked; the futures convexity adjustment is marked, not computed from the LGCM; correlations are for native swap rates only, not $Y^{f|d}$.
 \item Multi-currency model: odd and implied correlations, the triangle relation under stochastic collateral, off-market curves such as $Z^{\mathrm{EUR}|\mathrm{JPY}}$.
 \item Explicit parametrisations still marked FIXME in the deterministic volatility and LGCM reconstruction sections; comparison with the hypotheses of Kjaer.
 \item Appendices: the review of the Linear Gaussian Model (partly superseded by \autoref{ssec:covariance_integrals} and \autoref{ssec:lgcm_simulation}, with empty subsections), the second order mixtures of the normal approximations, the estimation of historical volatilities and correlations (headings only), and two sections marked ``[TODO: Remove this]''.
@@ -3144,6 +3144,56 @@ The error is multiplied by $4$ each time the volatilities are doubled, i.e. the 
 \autoref{prop:gauss_cb_spread} provides the model delivered volatility of currency basis spreads needed by the bootstrapping algorithm of the calibration section. It is explicit in the model parameters and only requires the covariance integrals of \autoref{ssec:covariance_integrals}, so it is cheap to evaluate inside the bootstrapping.
 \end{rema}
 
+\subsubsection{Caplets on Libor-type and compounded coupons}\label{sssec:lgcm_caplets}
+A Libor caplet fixes at the start $a$ of its accrual period, a caplet on a compounded overnight coupon only at the end $b$: the variance of the latter keeps accumulating during the accrual period, with a weight that decreases as the coupon accrues. The LGCM prices both exactly (\texttt{market.caplet\_total\_variance}, \texttt{instruments.Caplet}).
+
+\begin{prop}[Caplets on Libor-type and compounded coupons]\label{prop:lgcm_caplet}
+Let $e\in\{d,f\}$, $C$ the coupon factor \eqref{eq:coupon_factors} of the index of currency $e$ on $[a,b]$, $\theta = b-a$, and consider the caplet paying $\left(C - (1+\theta K)\right)^+$ at $b$ under native collateral. With $\Sigma_{u,T} = \Sigma^{e|e}_{u,T}$ the bond volatility of the block, in the LGCM:
+\begin{enumerate}
+\item under $\QQ^{e|e,b}$, $\ln C$ is Gaussian, with mean such that $\EE^{e|e,b}[C] = F := \kappa^e Z^{e|e}_{0,a}/Z^{e|e}_{0,b}$ ($\kappa^e = 1$ for compounded coupons) and variance
+\begin{eqnarray}
+  w^{\mathrm{L}} &=& \int_0^a |\Sigma_{u,b}-\Sigma_{u,a}|^2\,du \qquad \textrm{(Libor-type, fixed at $a$)}, \nonumber\\
+  w^{\delta} &=& w^{\mathrm{L}} + \sum_{k=0}^{n-1}\int_{t_k}^{t_{k+1}} |\Sigma_{u,b}-\Sigma_{u,t_{k+1}}|^2\,du \qquad \textrm{(daily, grid $a = t_0<\ldots<t_n = b$)}, \label{eq:lgcm_caplet_variance}\\
+  w^{0} &=& w^{\mathrm{L}} + \int_a^b |\Sigma_{u,b}|^2\,du \qquad \textrm{(continuous)}; \nonumber
+\end{eqnarray}
+\item the caplet price is exactly $Z^{e|e}_{0,b}\,\mathrm{Black}\left(F, 1+\theta K, w\right)$ with the variance of the coupon type;
+\item with constant volatility $\sigma$ and no mean reversion (Ho--Lee), $w^{\mathrm{L}} = \sigma^2\theta^2a$ and $w^0 = \sigma^2\theta^2(a+\theta/3)$: the compounded caplet has the variance of a Libor caplet with expiry $a + \theta/3$.
+\end{enumerate}
+\end{prop}
+
+\begin{proof}
+1. By \autoref{theo:qgcm}, $\ln Z^{e|e}_{t_k,t_{k+1}}$ is a deterministic function plus $-\int_0^{t_k}(\Sigma_{u,t_{k+1}}-\Sigma_{u,t_k})\cdot dW_u$, with $W$ a Brownian motion under $\QQ^{e|e,b}$ (the measure changes have deterministic kernels in the LGCM, \autoref{prop:lgcm_drifts}). So $\ln C = -\sum_k\ln Z^{e|e}_{t_k,t_{k+1}}$ is Gaussian, with stochastic part $\int_0^b \sum_k \mathbf{1}_{u<t_k}(\Sigma_{u,t_{k+1}}-\Sigma_{u,t_k})\cdot dW_u$. For $u<a$ the sum telescopes to $\Sigma_{u,b}-\Sigma_{u,a}$, and for $u\in[t_j,t_{j+1})$ to $\Sigma_{u,b}-\Sigma_{u,t_{j+1}}$; the It\^o isometry gives $w^\delta$. The Libor factor $\kappa^e/Z^{e|e}_{a,b}$ is the one-step case ($n = 1$, the second term vanishes), and $w^0$ is the limit $\delta\to0$, since $\Sigma_{u,t_{j+1}}\to\Sigma_{u,u} = 0$. The mean is \autoref{lemm:coupon_native_forward}. 2. $C$ is lognormal under $\QQ^{e|e,b}$ with mean $F$ and log-variance $w$, so $\EE^{e|e,b}[(C-(1+\theta K))^+] = \mathrm{Black}(F,1+\theta K,w)$, and the price is $Z^{e|e}_{0,b}$ times it. 3. $\Sigma_{u,T} = \sigma(T-u)$ gives $\int_0^a\sigma^2\theta^2du$ and $\int_a^b\sigma^2(b-u)^2du = \sigma^2\theta^3/3$.
+\end{proof}
+
+\begin{rema}[Swaptions are not affected]\label{rema:lgcm_caplet_swaptions}
+\begin{enumerate}
+\item The in-accrual variance concerns options on a single coupon. A swaption on a native swap is not affected: at the exercise date $T_0$ the floating leg of the forward-starting swap is worth $\kappa$-weighted discount factors, $Z_{T_0,T_0} - Z_{T_0,T_n}$ for compounded coupons, by \autoref{lemm:coupon_native_forward}. So the payoff only depends on the curve at $T_0$, whether the coupons fix in advance or in arrears, and the variance stops at $T_0$ (\autoref{prop:cal_exact_swaption}). Switching to compounded coupons only changes $\kappa$.
+\item A caplet on the current period ($a = 0$) has no time value if it is Libor-type ($w^{\mathrm{L}} = 0$), but a positive one if it is compounded.
+\item The ratio $w^\delta/w^{\mathrm{L}}$ is largest for short expiries and long accrual periods and tends to $1$ as $a\to\infty$ (Ho--Lee: $1+\theta/(3a)$). With piecewise constant volatilities it jumps when the accrual period crosses a knot, since the in-accrual variance then uses another volatility than the variance before $a$.
+\end{enumerate}
+\end{rema}
+
+\begin{rema}[Verification]\label{rema:lgcm_caplet_verification}
+The tests are in \path{tests/test_caplets.py}; the figure and the table are generated by \texttt{python -m} \texttt{convexity.figures caplets}.
+\begin{enumerate}
+\item The variance \eqref{eq:lgcm_caplet_variance} agrees with the variance of $\ln C$ computed from the joint law of the state at the fixing dates (exact transitions, an independent code path) to $10^{-13}$ (relative), in both blocks, with monthly and weekly steps.
+\item The Ho--Lee limit holds to $10^{-12}$; the one-step daily coupon is the Libor-type coupon; the daily variance converges to $w^0$ with an error proportional to the step (measured, not proved).
+\item Monte Carlo with the exact scheme and control variates of exactly known means ($\EE[D_bC] = Z_{0,a}$, $\EE[D_b] = Z_{0,b}$) reprices ATM compounded caplets within $4$ standard errors, and rejects the same caplets priced with the Libor variance $w^{\mathrm{L}}$ (\autoref{tab:lgcm_caplet_verification}). \autoref{fig:lgcm_caplet_vol_ratio} shows the ratio of the compounded to the Libor caplet volatility.
+\end{enumerate}
+\begin{table}[h]
+\centering\footnotesize
+\input{figures/table_caplet_verification.tex}
+\caption{ATM caplets on the test model under native collateral, weekly compounding: volatility ratio, closed form of \autoref{prop:lgcm_caplet}, Monte Carlo ($2^{18}$ paths, seed $5$) with its standard error and $z$-score, and the $z$-score of the price computed with the Libor variance $w^{\mathrm{L}}$.}
+\label{tab:lgcm_caplet_verification}
+\end{table}
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{figures/caplet_vol_ratio.pdf}
+\caption{Ratio of the volatility of a daily compounded caplet to that of a Libor caplet on the same period, domestic block, against the start of the period: test model and LGCM calibrated to the EURUSD example, with the Ho--Lee reference $\sqrt{1+\theta/(3a)}$.}
+\label{fig:lgcm_caplet_vol_ratio}
+\end{figure}
+\end{rema}
+
 \subsubsection{Correlations of FX and swap rates}\label{sssec:lgcm_correlations}
 Correlations between FX and rates fixings drive quanto and hybrid FX/rates products, and correlations between swap rates of different tenors or fixing dates drive CMS spread and mid-curve products. In the LGCM they are outputs of the model parameters. This section gives a closed form approximation, an exact benchmark and a Monte Carlo estimator (\texttt{correlations.py}).
 
@@ -3183,7 +3233,7 @@ The right hand side does not depend on the measure, and it is exact when both ob
 \end{rema}
 
 \begin{rema}[Verification]\label{rema:lgcm_corr_verification}
-\autoref{tab:lgcm_corr_verification} checks the three estimators on the test model of \autoref{rema:coupon_convexity_verification} (two domestic factors, one foreign, one collateral basis, full $5\times5$ correlation, synthetic initial curves; $10$Y swaps with annual fixed and quarterly floating legs unless stated), and \autoref{fig:lgcm_corr_convergence} shows the convergence of the approximation (tests in \path{tests/test_correlations.py}; figures and tables by \path{python -m convexity.figures}).
+\autoref{tab:lgcm_corr_verification} checks the three estimators on the test model of \autoref{rema:coupon_convexity_verification} (two domestic factors, one foreign, one collateral basis, full $5\times5$ correlation, synthetic initial curves; $10$Y swaps with annual fixed and quarterly floating legs unless stated), and \autoref{fig:lgcm_corr_convergence} shows the convergence of the approximation (tests in \path{tests/test_correlations.py}; figures and tables by \texttt{python -m} \texttt{convexity.figures}).
 \begin{enumerate}
 \item The quadrature is converged ($12$ and $24$ nodes per dimension agree to $10^{-12}$).
 \item The approximation error is $O(\lambda^2)$ under the scaling of all volatilities by $\lambda$ (\autoref{fig:lgcm_corr_convergence}~(a), ratio column of the table): a numerical observation. The correlation itself is invariant under $\lambda$ at leading order. The dependence on the measure (panel~(b)) is of the same order, except for $\ln x_5$ against $Y^f_5$, where it is below $10^{-8}$ for $\lambda\le1$.
@@ -3668,7 +3718,7 @@ With one quote per parameter and $\lambda = 0$ the problem is square and the fit
 \end{algo}
 
 \begin{rema}[Global fit against the bootstrap]\label{rema:cal_global_vs_bootstrap}
-Example markets, deterministic collateral basis (DCB) curves unless stated (tests in \path{tests/test_curve_fitting.py}; figures and table by \path{python -m convexity.figures}).
+Example markets, deterministic collateral basis (DCB) curves unless stated. The tests are in \path{tests/test_curve_fitting.py}; the figures and the table are generated by \texttt{python -m} \texttt{convexity.figures}.
 \begin{enumerate}
 \item \emph{Two independent algorithms, one curve.} With flat nodes at every pillar and no spline knots, the global fit returns the bootstrapped curves of \autoref{algo:cal_curve_bootstrap} (discount factors agree to $10^{-12}$ relative up to $40$Y). Quotes generated from given hybrid curves are fitted back to the same parameters ($10^{-11}$), nested or in a single problem.
 \item \emph{Shape.} \autoref{fig:cal_curve_forwards} compares the forwards. Both curves reprice every quote (\autoref{tab:cal_global_fit}); they agree where the quotes pin the discount factors and differ between the pillars and in the extrapolation, flat at $r_{0,k_n}$ for the hybrid curve and at the last section average for the bootstrap.
@@ -3701,7 +3751,7 @@ Example markets, deterministic collateral basis (DCB) curves unless stated (test
 \subsection{Calibration to single currency markets}
 
 \subsubsection{Calibration of spot-volatility to the cap market}%
-Not implemented: the companion calibrates the native blocks to swaptions only.
+Not implemented: the companion calibrates the native blocks to swaptions only. Caplets on Libor-type and compounded coupons are priced exactly (\autoref{prop:lgcm_caplet}) but are not yet calibration targets.
 
 \subsubsection{Calibration of spot-volatility to the swaption market}%
 We consider a native block $a\in\{d,f\}$ and a swaption in currency $a$ under native collateral. For a swap with cash flow dates $t_m$ (the union of the floating and fixed dates), we write $c_m$ for the coefficients of the payer swap at the ATM strike $K$: $c^f_m$ of \eqref{eq:cal_swap_rate} on the floating dates and $-K\tau_k$ on the fixed dates, summed for equal dates. We also write $P_m = Z^{a|a}_{0,t_m}/Z^{a|a}_{0,T_0}$.

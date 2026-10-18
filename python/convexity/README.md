@@ -26,11 +26,12 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | `correlations.py` | terminal correlations of `LogFX(T)` and native `SwapRate(ccy, T0, tenor)` (CMS fixings), same expiry or intertemporal: `correlation_approx` (closed form, frozen-weights gradients and cross-date covariance integrals, measure independent), `correlation_exact` (joint law of the exact transitions under Q^{d,RN} or Q^{d\|d,T*}, Gauss–Hermite), `correlation_mc` (exact scheme, weighted for Q^{d\|d,T*}, delta-method s.e., optional control variate by the linearised observables) |
 | `tests/test_correlations.py` | the checks of Remark "Verification" of section "Correlations of FX and swap rates" |
 | `figures.py` | `python -m convexity.figures` (~2 min) regenerates the plotly figures (vector PDF via kaleido) and LaTeX tables of the notes in `docs/figures/`: forwards bootstrap vs hybrid, futures residuals and locality, bootstrap vs global fit per market, zig-zag control, correlation term structures, tenor and intertemporal correlations, convergence and the correlation verification table |
+| `tests/test_caplets.py` | caplets on Libor-type and compounded coupons: closed form against the joint law of the exact transitions, Ho–Lee limit, Monte Carlo |
 | `tests/test_lgcm.py` | the checks quoted in the verification remarks of the notes |
 | `tests/test_montecarlo.py` | reduced Monte Carlo checks (4 standard error tolerance, fixed seeds) |
 | `tests/test_payoffs.py` | Monte Carlo prices of all payoffs against LGCM closed forms, model-free prices in the QGCM, put-call parities |
 | `curves.py` | `Index` (OIS with daily or continuous compounding, or IBOR with funding spread, kappa = 1 + theta s; `.coupon`), curve keys `DiscountCurveKey(currency, collateral)` / `ForwardCurveKey`, `PiecewiseFlatCurve`, `HybridCurve` (flat forwards at the short end, cubic spline of the integrated forward at the long end), `SpreadCurve` (Z^{f\|d} = Z^{f\|f} x collateral basis curve), `FunctionCurve`, `LGCMSetup` (roles d, f and collateral indices), `CurveSet` (duck-type compatible with `InitialCurves`) |
-| `instruments.py` | calibration instruments (pure data): `Swap`, `RateFuture` (price 100(1 - R), marked convexity adjustment), `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`; `Quote`, `MarketQuotes` |
+| `instruments.py` | calibration instruments (pure data): `Swap`, `RateFuture` (price 100(1 - R), marked convexity adjustment), `Caplet` (Libor-type or compounded coupon, native collateral, price), `FXForward`, `ResettingCCS`, `Swaption`, `FXOption`, `CurrencyBasisSwaption`; `Quote`, `MarketQuotes` |
 | `pricers.py` | `DeterministicPricer` (DCB: K = 1, no options), `LGCMPricer` (collateral convexity of the foreign coupon, Libor or compounded; exact one factor swaption, Gaussian swaption variance with separate fixed/float schedules, FX vol, CB vol exact and Gaussian) |
 | `curve_calibration.py` | generic sequential curve bootstrap with a convexity provider; `calibrate_curves(quotes)` is the DCB market practice |
 | `curve_fitting.py` | global alternative to the bootstrap (kept for comparison): `CurveSpec` (flat nodes, spline knots), `default_curve_spec`, `fit_curves` (nested curve sets by dependency level, Levenberg–Marquardt, optional curvature penalty, weights), `calibrate_curves_global`, `GlobalFit` (curve method of `ModelSpec(curves=...)`) |
@@ -64,6 +65,7 @@ python -m pytest convexity -q -m "not slow"    # without the Monte Carlo reprici
 | Definition "Hybrid forward curve", Proposition "Smooth forward section" | `test_hybrid_integral_matches_quadrature`, `test_hybrid_parameters_are_flat_forwards_then_section_averages`, `test_hybrid_forward_continuity_and_smoothness`, `test_roughness_is_the_l2_norm_of_the_forward_slope`, `test_spline_minimises_the_forward_slope`, `test_spline_through_forward_knot_values_zig_zags` | quadrature (1e-14); orthogonality int I'' phi'' = 0 (2.5e-16), negative control with a clamped end (-2.45); a spline through free forward knot values zig-zags (4.21, 3.11, 3.82, 2.98, 4.58 ... %) |
 | Algorithm "Nested global curve calibration", Remark "Global fit against the bootstrap" | `test_flat_spec_reproduces_the_bootstrap`, `test_global_fit_round_trip`, `test_example_markets_exact_fit_and_smooth_forwards`, `test_futures_in_bootstrap_and_least_squares`, `test_underdetermined_needs_smoothing_and_smoothing_trades_fit_for_roughness`, `test_lgcm_calibration_with_global_curves` | flat nodes at every pillar = bootstrap (1e-12); round trip of hybrid curves (1e-11), nested and single problem; exact fit 3e-12 bp; futures: least squares first order conditions J^T r = 0 |
 | Proposition "Gaussian approximation of terminal correlations", Remark "Exact benchmark and Monte Carlo estimator" | `test_state_covariance_matches_the_transition_law`, `test_swap_gradient_is_the_swaption_gradient`, `test_swap_value_matches_the_simulator_reconstruction`, `test_linear_observables_are_exact`, `test_quadrature_is_converged`, `test_gaussian_approximation_error_is_second_order`, `test_mc_with_control_matches_exact_and_rejects_the_approximation`, `test_plain_mc_matches_exact`, `test_measures_differ_at_second_order`, `test_stderr_is_calibrated` | closed-form state covariances = transition law (1e-16); approx error O(lambda^2) (ratios 4.00 +- 0.02, measured, not proved); MC with control within 4 s.e. of the exact quadrature under both measures, approximation rejected at 28-57 s.e. (RN) |
+| Proposition "Caplets on Libor-type and compounded coupons" | `test_ho_lee_limit`, `test_daily_variance_matches_the_transition_law`, `test_libor_is_the_one_step_daily_caplet_and_continuous_is_the_limit`, `test_in_accrual_variance_is_positive_and_spot_libor_caplet_has_none`, `test_monte_carlo_prices_the_rfr_caplet_and_rejects_the_libor_variance`, `test_caplet_instrument_and_pricer` | variance of ln C from the transition law (1e-13); Ho–Lee a + θ/3 (1e-12); MC within 4 s.e. with exact-mean controls, the Libor variance rejected at 7.6 to 155 s.e. |
 | Algorithm "LGCM calibration" | `test_calibration_reprices_all_quotes`, `test_round_trip_recovers_parameters`, `test_input_order_does_not_matter`, `test_cb_vols_not_moved_by_later_expiries`, `test_two_factor_domestic_block` | all 65 quotes repriced (measured max errors 2e-16, FX forwards 1.4e-12 pips); round trip to 1e-8; fixed point in 5 iterations |
 | DCB limit, collateral convexity of the curves | `test_dcb_limit`, `test_collateral_convexity_moves_the_long_end` | sigma^c = 0 gives the DCB curve (1e-14) |
 | Variance squeeze (Proposition "Calibration constraints"), missing quotes | `test_variance_squeeze_raises`, `test_swaption_squeeze_at_later_expiry_raises`, `test_zero_cb_vol_raises_with_label`, `test_cb_vol_squeeze_at_later_expiry_raises`, `test_duplicate_expiry_raises`, `test_calibrate_without_fd_quotes_raises`, `test_marked_blocks_are_reported` | `CalibrationError` naming the instrument; `diagnostics["marked"]` |
@@ -176,6 +178,23 @@ The Gaussian approximation is off by 2e-5 to 2e-4 on the test model, O(lambda^2)
 control variate (linearised observables, whose correlation is the closed form) divides the Monte Carlo standard
 error by about 10^3 under Q^{d,RN}. The figures and the verification table of the notes come from
 `python -m convexity.figures`.
+
+## Caplets
+
+`market.caplet_total_variance(model, block, a, b, coupon)` is the variance of ln C under the native forward measure:
+a Libor-type coupon fixes at `a`, a compounded one at `b`, and its variance keeps accumulating during the accrual period
+(Ho–Lee: effective expiry a + θ/3). `Caplet(index, start, end, strike=None)` is priced exactly by
+`LGCMPricer.caplet_price` (Black on the lognormal coupon factor). Swaptions are not affected: the floating leg of a
+forward-starting swap is worth Z_{T0} − Z_{Tn} at exercise whatever the coupon type.
+
+```python
+from convexity.calibration import calibrate
+from convexity.market_data import example_quotes, SOFR
+from convexity.instruments import Caplet
+cal = calibrate(example_quotes())
+pr = cal.pricer()
+Caplet(SOFR, 1.0, 1.25).quote(pr), pr.caplet_variance(Caplet(SOFR, 1.0, 1.25))   # ATM SOFR caplet: price, w
+```
 
 ## Coupon types and markets
 

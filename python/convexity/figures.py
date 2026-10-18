@@ -1,6 +1,6 @@
-"""Figures and tables of the notes for the global curve fit and the correlations.
+"""Figures and tables of the notes: global curve fit, correlations, caplets.
 
-Run from python/:  python -m convexity.figures   (about 1.5 min)
+Run from python/:  python -m convexity.figures [curves] [correlations] [caplets]   (all groups: about 2.5 min)
 Plotly figures exported as vector PDFs (kaleido) and LaTeX table fragments (\\input by docs/CollateralDiscounting.tex) to docs/figures/.
 Every number shown in these figures and tables is computed here.
 """
@@ -19,7 +19,9 @@ from .curve_fitting import GlobalFit, calibrate_curves_global, unit
 from .curves import SpreadCurve
 from .instruments import CurrencyBasisSwaption, FXOption, Swap, Swaption
 from .lgcm import default_model
-from .market import InitialCurves
+from .market import LIBOR, Coupon, InitialCurves, black, caplet_total_variance
+from .montecarlo import Simulator, cv_mean_and_stderr
+from .schemes import ExactScheme
 from .market_data import MARKETS, example_quotes
 from .pricers import DeterministicPricer
 
@@ -296,20 +298,75 @@ def table_corr_verification():
         r"\midrule", *rows, r"\bottomrule", r"\end{tabular}"]))
 
 
-def main():
+# ---------------------------------------------------------------------- caplets
+def fig_caplet_vol_ratio(models):
+    """sqrt(w_RFR / w_Libor): vol of the compounded (daily) caplet over that of the Libor caplet on the same
+    period, domestic block, against the start date; Ho-Lee reference sqrt(1 + theta / (3 a))."""
+    starts = np.r_[0.25, 0.5, 0.75, 1:20.5:0.5]
+    fig = make_subplots(1, 2, shared_yaxes=True, horizontal_spacing=0.05,
+                        subplot_titles=["(a) 3M periods", "(b) 1Y periods"])
+    for k, th in enumerate((0.25, 1.0), start=1):
+        for (title, m, _), color, dash in zip(models, (BLUE, ORANGE), ("solid", "dash")):
+            r = [np.sqrt(caplet_total_variance(m, "d", a, a + th, Coupon("daily")) / caplet_total_variance(m, "d", a, a + th, LIBOR))
+                 for a in starts]
+            fig.add_trace(_line(starts, r, color, title.split(" (")[0], dash, show=k == 1, group=title), 1, k)
+        fig.add_trace(_line(starts, np.sqrt(1 + th / (3 * starts)), MUTED, "Ho–Lee: √(1 + θ/(3a))", "dot", 1.8,
+                            show=k == 1, group="hl"), 1, k)
+        fig.update_xaxes(type="log", title_text="period start a (years)", tickvals=[0.25, 0.5, 1, 2, 5, 10, 20],
+                         ticktext=["0.25", "0.5", "1", "2", "5", "10", "20"], row=1, col=k)
+    fig.update_yaxes(title_text="vol ratio √(w<sub>RFR</sub>/w<sub>Libor</sub>)", row=1, col=1)
+    _save(_layout(fig), "caplet_vol_ratio.pdf")
+
+
+def table_caplet_verification():
+    """ATM caplets on the test model, weekly compounding: closed form, Monte Carlo with exact-mean controls
+    (D C and D), z-score, and the z-score of the price computed with the Libor variance (fixing at a)."""
+    m, cv = default_model(), InitialCurves()
+    sim = Simulator(m, scheme=ExactScheme(0.25))
+    rows = []
+    for block, a, b in (("d", 0.25, 0.5), ("d", 2.0, 2.25), ("d", 10.0, 10.25), ("f", 1.0, 1.25), ("f", 5.0, 6.0)):
+        cp = Coupon("daily", 1 / 52)
+        g, kind = cp.grid(a, b), block * 2
+        st = sim.simulate_dates(list(g), 2**18, seed=5)
+        C = np.exp(sum(-np.log(sim.discount(st(t0), cv, kind, t1)) for t0, t1 in zip(g[:-1], g[1:])))
+        D = sim.deflator(st(b), cv, block, block)
+        Za, Zb = cv.Z0(kind, a), cv.Z0(kind, b)
+        F = Za / Zb
+        est, se = cv_mean_and_stderr(D * np.maximum(C - F, 0.0), [D * C, D], [Za, Zb])
+        w, wl = caplet_total_variance(m, block, a, b, cp), caplet_total_variance(m, block, a, b, LIBOR)
+        closed, libor = Zb * black(F, F, w), Zb * black(F, F, wl)
+        rows.append(f"${block}$ & $[{a:g}, {b:g}]$ & {np.sqrt(w / wl):.4f} & {1e4 * closed:.4f} & {1e4 * est:.4f} & "
+                    f"{1e4 * se:.4f} & {(est - closed) / se:+.2f} & {(est - libor) / se:+.1f} \\\\")
+    _write("table_caplet_verification.tex", "\n".join([
+        r"\begin{tabular}{llcccccc}", r"\toprule",
+        r"block & period & $\sqrt{w_{\mathrm{RFR}}/w_{\mathrm{Libor}}}$ & closed form (bp) & MC (bp) & s.e. (bp) & $z$ & $z$ with $w_{\mathrm{Libor}}$ \\",
+        r"\midrule", *rows, r"\bottomrule", r"\end{tabular}"]))
+
+
+GROUPS = ("curves", "correlations", "caplets")
+
+
+def main(groups=GROUPS):
+    """Regenerate the figures and tables of the given groups (default: all)."""
     OUT.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
-    fig_curve_forwards()
-    fig_curve_futures_locality()
-    table_curve_fit()
-    table_zigzag()
-    models = _models()
-    fig_corr_term_structure(models)
-    fig_corr_tenor_intertemporal(models)
-    fig_corr_convergence()
-    table_corr_verification()
+    if "curves" in groups:
+        fig_curve_forwards()
+        fig_curve_futures_locality()
+        table_curve_fit()
+        table_zigzag()
+    models = _models() if {"correlations", "caplets"} & set(groups) else None
+    if "correlations" in groups:
+        fig_corr_term_structure(models)
+        fig_corr_tenor_intertemporal(models)
+        fig_corr_convergence()
+        table_corr_verification()
+    if "caplets" in groups:
+        fig_caplet_vol_ratio(models)
+        table_caplet_verification()
     print(f"figures and tables written to {OUT} in {time.perf_counter() - t0:.0f} s")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(tuple(sys.argv[1:]) or GROUPS)
