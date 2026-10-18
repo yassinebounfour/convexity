@@ -120,7 +120,8 @@ Measured on the example market: 5 fixed point iterations, 5.5 s; max analytic re
 The 30Y Z^{f|d} zero rate of the LGCM is 3.75 bp above the DCB one calibrated to the same quotes.
 
 The marimo notebook `python/notebooks/lgcm_calibration.py` shows the calibration results, the
-repricing tables, the impact of the marked parameters and the collateral convexity. From the
+repricing tables, the impact of the marked parameters and the collateral convexity. Its section "USDJPY versus EURUSD" compares
+compounded (SOFR vs TONA) and Libor-type (SOFR vs EURIBOR) cross-currency legs and caplets on both coupon types. From the
 repository root: `marimo edit python/notebooks/lgcm_calibration.py` (or `marimo run` for the app view).
 
 ## Global curve calibration
