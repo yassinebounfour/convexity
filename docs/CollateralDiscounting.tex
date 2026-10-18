@@ -167,6 +167,7 @@
 
 \begin{abstract}
 In these personal notes, we generalise the HJM framework\footnote{i.e. the arbitrage free pricing framework under stochastic discount rates} to multiple currencies and stochastic collateral. Then, we define the Linear Gaussian Collateral Model by specialising this framework to separable and deterministic volatility and constant funding spread thus generalising the Black-Scholes-Hull-White model to account for stochastic collateral. In this model, we derive the dynamic of all market observables (ZCBs, FX-forwards, FRAs, swap rates, currency basis spreads etc\ldots)  as well as their collateral convexity adjustments. Finally, we describe a procedure to calibrate this model accurately to market quotes and/or historical data.  
+The convexity adjustments cover Libor-type and compounded overnight (RFR) coupons alike. The calibration builds the cross-currency discount curve jointly with the collateral basis volatility, with the curves either bootstrapped or fitted globally (nested least squares on piecewise flat and smooth curves, with rate futures). We also give Gaussian approximations of the terminal correlations of FX and swap rates, and apply the framework to repo convexity. Every result is checked numerically against an exact benchmark or Monte Carlo in a Python companion.
 \end{abstract}
 
 %\newpage
@@ -182,6 +183,15 @@ All items below were addressed on 2026-10-09 and checked numerically (see the ve
 \item \emph{Done.} Consistency of interpolation with model dynamic: \autoref{ssec:interpolation_consistency}.
 \end{enumerate}
 Remaining open points found on the way: the Gaussian approximations are for a single collateral basis block ($f\to d$); options on currency basis spreads with smile are not covered.
+
+Open points as of 2026-10-13 (review of the notes):
+\begin{enumerate}
+\item Deterministic volatility models: the dynamic of the currency basis spread (still ``$dB = ??$''), the collateral convexity of resetting forward Libors (marked ``???'') and of currency basis spreads (empty subsection), the investigation of the funding spread assumption in the Libor collateral convexity, and the question whether the convexity adjustments of $Z^{f|d}$ and $Z^{d|f}$ offset or add up (the calibration notebook computes both).
+\item Calibration: caplets are not calibrated, and mean reversions, correlations and factor weights are marked; the futures convexity adjustment is marked, not computed from the LGCM; correlations are for native swap rates only, not $Y^{f|d}$.
+\item Multi-currency model: odd and implied correlations, the triangle relation under stochastic collateral, off-market curves such as $Z^{\mathrm{EUR}|\mathrm{JPY}}$.
+\item Explicit parametrisations still marked FIXME in the deterministic volatility and LGCM reconstruction sections; comparison with the hypotheses of Kjaer.
+\item Appendices: the review of the Linear Gaussian Model (partly superseded by \autoref{ssec:covariance_integrals} and \autoref{ssec:lgcm_simulation}, with empty subsections), the second order mixtures of the normal approximations, the estimation of historical volatilities and correlations (headings only), and two sections marked ``[TODO: Remove this]''.
+\end{enumerate}
 
 
 \tableofcontents
@@ -238,18 +248,23 @@ FVA is defined as the cost of hedging a non-collateralised trade with collateral
 \subsection{Structure of these notes}
 
 \begin{enumerate}
-\item \emph{Valuation of collateralised trades}: reminder on risk-neutral pricing to set notations.
+\item \emph{Valuation of collateralised trades}: reminder on risk-neutral pricing to set notations, and the standard instruments and market observables.
 \item \emph{Market Models}: tentative formal definition of the class of models we are considering.
 \item \emph{Deterministic Collateral Basis Model}: short description of the current standard market practice for the valuation of fixed and floating rates cash-flows (swaps, fx-forwards, cross-currency swaps, etc...). 
-\item \emph{Arbitrage free models with stochastic collateral}: extension of the HJM framework to fixed cash-flows under stochastic collateral.
-\item Specialisation to deterministic volatility to get explicit formulas\footnote{This could easily be extended to encompass displaced lognormal diffusions thus capturing the value of the forward, the atm vol and the atm skew of the calibration targets.} for convexity adjustments.
-\item Specialisation to separable volatility to get finite dimensional Markovian dynamic.
-\item \emph{Specification of the LGCM}. By combining the two previous sections we generalise the IR Linear Gaussian model and FX Black-Scholes model to account for stochastic collateral. The main twist is the closed form approximation for the volatility of the currency basis spread. 
-\item \emph{Calibration of the LGCM}. The main point is that the EUR$|$USD discount curve and the EUR collateral basis spot volatility should be \emph{jointly} bootstrapped. 
-%\item 
+\item \emph{Arbitrage free models with stochastic collateral}: extension of the HJM framework to fixed cash-flows under stochastic collateral, quanto adjustments and the dynamic of market observables (including compounded overnight coupons and currency basis spreads).
+\item \emph{Collateral convexity adjustments and P\&L}: change of collateral and of payment currency, the relation to McCloud's definition, and the P\&L equation.
+\item \emph{Deterministic volatility models}: specialisation to deterministic volatility to get explicit formulas\footnote{This could easily be extended to encompass displaced lognormal diffusions thus capturing the value of the forward, the atm vol and the atm skew of the calibration targets.} for convexity adjustments.
+\item \emph{Quasi-Gaussian Collateral Model}: specialisation to separable volatility to get finite dimensional Markovian dynamic (\autoref{theo:qgcm}).
+\item \emph{Specification of the LGCM}. By combining the two previous sections we generalise the IR Linear Gaussian model and FX Black-Scholes model to account for stochastic collateral. The main twist is the closed form approximation for the volatility of the currency basis spread. The section ends with the Gaussian approximations of swap rates and currency basis spreads and the terminal correlations of FX and swap rates (\autoref{sssec:lgcm_correlations}).
+\item \emph{Implementation of the LGCM}: covariance integrals in closed form, convexity adjustments and exact Monte Carlo simulation under the risk-neutral, $T$-forward and jumping num\'eraire measures.
+\item \emph{Calibration of the LGCM}. The main point is that the EUR$|$USD discount curve and the EUR collateral basis spot volatility should be \emph{jointly} bootstrapped. The section covers the calibration instruments (including rate futures), the discount curves by bootstrap or by a nested global least squares fit (\autoref{ssec:cal_global_curves}), the volatilities, interpolation and consistency with the model dynamic, alternative calibrations and the multi-currency model.
+\item \emph{Bonds, repo and repo convexity} (\autoref{sec:repo}): the repo rate as a collateral convexity adjustment, after McCloud, in the LGCM and in Hull--White.
+\item \emph{Remarks}: model usage, P\&L leaks, materiality, assessment and generalisations.
 \end{enumerate}
 
-Appendices contain details of mathematical proofs.
+Appendices contain details of mathematical proofs, a review of the Linear Gaussian Model, normal approximations of currency basis distributions and a draft on the estimation of historical volatilities and correlations.
+
+The numerical companion (\texttt{python/convexity}) implements the LGCM, its calibration and the benchmarks; the verification remarks quote its measurements, and the figures and tables are generated by \texttt{python -m convexity.figures}.
 
 Floating coupons are either Libor-type (fixed at the start of the accrual period) or compounded overnight (RFR) coupons, which replaced Libor in GBP, JPY, CHF and USD. Both are treated alongside throughout (coupon factors \eqref{eq:coupon_factors}). Under native collateral every coupon type is model-free (\autoref{lemm:coupon_native_forward}). Under non-native collateral the collateral convexity of a compounded coupon has an extra in-arrears term (\autoref{prop:coupon_collateral_convexity} and \autoref{prop:coupon_continuous_error}); in the examples of these notes it changes $\ln K$ by $10^{-8}$ to $10^{-7}$ per quarterly period and the calibrated curves by about $0.001$bp (\autoref{rema:cal_libor_vs_rfr}).
 
@@ -464,7 +479,7 @@ B^{f/d|i,*}_{t,T;M} &=&
   \sum_{k=1}^{\f M} \left( Z^{d|i}_{t,T_k} \EE^{d|i,T_k}_t\left[ x^{df}_{\mathrm{ref},k} (1+\theta L^{d|i}_{T_{k-1};\theta})\right] - Z^{d|i}_{t,T_{k-1}} \EE^{d|i,T_{k-1}}_t\left[ x^{df}_{\mathrm{ref},k}\right] \right) - 
     \sum_{k=1}^{\f M} \left(  Z^{f|i}_{t,T_k} \left(1+\theta L^{f|i}_{t,T_{k-1},T_k} \right) - Z^{f|i}_{t,T_{k-1}} \right) }
    {\sum_{k=1}^{\f M}  \theta Z^{f|i}_{t,T_k}}
-  \label{eq:forward_cb_non_resetting}
+  \label{eq:forward_cb_non_resetting_generic}
 \end{eqnarray*}
 In the case of constant notionals, i.e. deterministic $x^{df}_{t_{\mathrm{ref},i}} $, the par-spread is: 
 \begin{eqnarray*}
@@ -1162,7 +1177,7 @@ The currency basis spread of a resetting cross-currency swaplet is:
 \begin{eqnarray}
 	B^{f/d|i,r}_{t,T;\theta} 
 	&=& \frac{1}{\theta}\left(1+\theta R^{f|d}_{t,T;\theta} \right)  \left( \EE^{f|i,T}_t\left[ \frac{1+\theta L^{d|i}_{T;\theta}}{ 1+ \theta R^{d|i}_{T;\theta}} \right] - \frac{1+\theta L^{f|i}_{t,T;\theta}}{ 1+ \theta R^{f|i}_{t;T;\theta}}  \right)  
-	\label{eq:cb_r_swaplet}
+	\label{eq:cb_r_swaplet_general}
 \end{eqnarray} 
 In particular, 
 \begin{eqnarray}
@@ -1170,12 +1185,12 @@ In particular,
   &=& \left(1+\theta R^{f|d}_{t,T;\theta} \right)  \left(S^{f|d,\div}_{t,T;\theta} - S^{d|d,\div}_{t_0,T;\theta} \right)  
 	\label{eq:cb_r_swaplet}
 \end{eqnarray} 
-%Equivalently,
-%\begin{eqnarray}
-%	Z^{f|d}_{t,T,T+\theta}B^{f/d|d,r}_{t,T;\theta} 
-%	&=&  S^{f|d,\div}_{t,T;\theta} - S^{d|d,\div}_{t_0,T;\theta} 
-%	\label{eq:cb_r_swaplet2}
-%\end{eqnarray} 
+Equivalently, with $Z^{f|d}_{t,T,T+\theta} = 1/(1+\theta R^{f|d}_{t,T;\theta})$,
+\begin{eqnarray}
+	Z^{f|d}_{t,T,T+\theta}B^{f/d|d,r}_{t,T;\theta} 
+	&=&  S^{f|d,\div}_{t,T;\theta} - S^{d|d,\div}_{t_0,T;\theta} 
+	\label{eq:cb_r_swaplet2}
+\end{eqnarray} 
 \end{theo}
 
 
@@ -4607,6 +4622,10 @@ In these notes,
 \item We proved that under the Cheyette separability condition, these models are Markovian. 
 \item We derived explicit formulas for convexity adjustments. 
 \item Finally, we introduced the Linear Gaussian Collateral Model and described efficient algorithms for its calibration and simulation. 
+\item The convexity adjustments hold for Libor-type and compounded overnight coupons alike.
+\item The calibration builds the cross-currency discount curve jointly with the collateral basis volatility, the curves being either bootstrapped or fitted globally on hybrid (piecewise flat and smooth) curves; the collateral convexity moves the long end of the curve by a few basis points on the example markets.
+\item The Gaussian approximations of swap rates, currency basis spreads and terminal correlations are asymptotic in the volatility, with errors measured at $O(\lambda^2)$ under vol scaling; the same framework gives the repo convexity of bonds.
+\item Every closed form is checked against an exact benchmark (moment ODEs, quadrature, no-arbitrage identities) or Monte Carlo in the numerical companion. The open points are listed at the beginning of the notes.
 \end{enumerate}
 
 
@@ -5244,12 +5263,12 @@ Then
 
 
 
-\begin{rema}[FIXME: This is false as it assumes $S^{f|d,\div}_{t_0,T;\theta} = S^{f|f,\div}_{t_0,T;\theta}$, ignoring the collateral volatility!]
+\begin{rema}[Structure of the swaplet spread]
 \autoref{eq:cb_r_swaplet} is surprisingly simple
 \begin{enumerate}
 \item The currency basis spread $B^{f/d|d,r}_{t,T;\theta}$ is a $\QQ^{f|d,T+\theta}$-martingale as expected.
 \item \autoref{eq:cb_r_swaplet2} shows that $Z^{f|d}_{t,T;\theta}B^{f/d|d,r}_{t,T;\theta} $ is exactly equal to the difference in funding spreads which corresponds to the financial intuition for the existence of currency basis.  
-\item Even though we took into account convexity adjustments, the relation between the currency basis $B^{f/d|d,r}_{t,T;\theta} $ and the discount rate $R^{f|d}_{t,T;\theta}$ does not depend on the covariance matrix of the diffusion. This is a small miracle in itself.  It implies that the discount curve $\{Z^{f|d}_{t,T}\}$ can still be bootstrapped from resetting cross-currency swaps without calibrating the model. Only the off-market discount curves would depend on the covariance structure. 
+\item The relation between the currency basis $B^{f/d|d,r}_{t,T;\theta}$ and the discount rate $R^{f|d}_{t,T;\theta}$ \emph{does} depend on the covariance matrix of the diffusion, through the foreign funding spread under domestic collateral. By its definition and the collateral convexity $K$ of the foreign coupon, $1-\theta S^{f|d,\div}_{t,T;\theta} = \kappa^f K\,(1+\theta R^{f|f}_{t,T;\theta})/(1+\theta R^{f|d}_{t,T;\theta})$, so $S^{f|d,\div} \neq S^{f|f,\div}$ as soon as $K \neq 1$, and \eqref{eq:cb_r_swaplet} becomes the swaplet spread $\theta B_j = \kappa^d P_{j-1}/P_j - \kappa^f K_j F_{j-1}/F_j$ of \eqref{eq:cal_ccs_spread}. (An earlier version of this item stated the opposite, implicitly setting $S^{f|d,\div} = S^{f|f,\div}$, i.e.\ $K = 1$.) This is why the discount curve $\{Z^{f|d}_{t,T}\}$ is bootstrapped from resetting cross-currency swaps with a convexity provider (\autoref{algo:cal_curve_bootstrap}) and calibrated jointly with the collateral basis volatility.
 \item The currency basis spread does not depend on the FX spot or its volatility.
 \item The volatility of the currency basis spread does depend on the volatility of the foreign rate. 
 \item \autoref{eq:cb_r_swaplet} compares nicely to DCB \autoref{eq:differential_discounting} (see below). \end{enumerate}
@@ -5908,18 +5927,18 @@ Let us introduce:
 
 
 \begin{eqnarray*}
-  dX_{t}  &=& - \beta_t X_t + \sigma_t  \, dW_t \\
+  dX_{t}  &=& - \beta_t X_t \, dt + \sigma_t  \, dW_t \\
   d\left( e^{\int_0^t\beta_u\,du }X_{t} \right) &=&  \sigma_t e^{\int_0^t\beta_u\,du } \, dW_t \\
-  e^{\int_0^{t_{k+1}}\beta_u\,du }X_{t_{k+1}}  &=&  e^{\int_0^{t_k}\beta_u\,du }X_{t_{k}} + \int_{t_{k}}^{t_{k+1}} \sigma_u e^{\int_0^u\beta_v\,dv } \, dW_v \\
-  X_{t_{k+1}}  &=&  e^{-\int_{t_{k}}^{t_{k+1}}\beta_v\,dv }X_{t} + e^{-\int_0^{t_{k+1}}\beta_v\,dv } \int_{t_{k}}^{t_{k+1}} \sigma_u e^{\int_0^u\beta_v\,dv } \, dW_v \\
-   &=&  e^{-\int_{t_{k}}^{t_{k+1}}\beta_v\,dv }X_{t} + e^{-\int_{t_{k}}^{t_{k+1}}\beta_v\,dv } \int_{t_{k}}^{t_{k+1}} \sigma_u e^{\int_{t_{k}}^u\beta_v\,dv } \, dW_v 
+  e^{\int_0^{t_{k+1}}\beta_u\,du }X_{t_{k+1}}  &=&  e^{\int_0^{t_k}\beta_u\,du }X_{t_{k}} + \int_{t_{k}}^{t_{k+1}} \sigma_u e^{\int_0^u\beta_v\,dv } \, dW_u \\
+  X_{t_{k+1}}  &=&  e^{-\int_{t_{k}}^{t_{k+1}}\beta_v\,dv }X_{t_k} + e^{-\int_0^{t_{k+1}}\beta_v\,dv } \int_{t_{k}}^{t_{k+1}} \sigma_u e^{\int_0^u\beta_v\,dv } \, dW_u \\
+   &=&  e^{-\int_{t_{k}}^{t_{k+1}}\beta_v\,dv }X_{t_k} + \int_{t_{k}}^{t_{k+1}} \sigma_u e^{-\int_{u}^{t_{k+1}}\beta_v\,dv } \, dW_u 
 \end{eqnarray*}
 
 \begin{prop}
 Conditionally on $X_{t_k}$, $X_{t_{k+1}}$ is normal with moments:
 \begin{eqnarray}
   \EE[X_{t_{k+1}} | X_{t_k}] &=& e^{-\int_{t_k}^{t_{k+1}}\beta_v\,dv }  X_{t_k}  \\
-  \VV[X_{t_{k+1}} | X_{t_k}] &=& \int_{t_{k}}^{t_{k+1}} \left| \sigma_u e^{\int_0^u\beta_v\,dv } \right|^2 dv
+  \VV[X_{t_{k+1}} | X_{t_k}] &=& \int_{t_{k}}^{t_{k+1}} \sigma_u^2 e^{-2\int_u^{t_{k+1}}\beta_v\,dv } \, du
 \end{eqnarray} 
 \end{prop}
 
@@ -5930,20 +5949,20 @@ This allows for the exact simulation of the process using the scheme:
 where 
 \begin{eqnarray*}
   \alpha_{k+1} &=& e^{-\int_{t_k}^{t_{k+1}}\beta_v\,dv }  \\
-  \Sigma_{k+1} &=& \sqrt{ \int_{t_k}^{t_{k+1}} \sigma_u^2 e^{-2\int_{t_k}^u\beta_v\,dv } \, du} 
+  \Sigma_{k+1} &=& \sqrt{ \int_{t_k}^{t_{k+1}} \sigma_u^2 e^{2\int_{t_k}^u\beta_v\,dv } \, du} 
 \end{eqnarray*}
-and $(\xi_k)$ is a Gaussian white noise. 
+(so that $\alpha_{k+1}^2\Sigma_{k+1}^2$ is the conditional variance of the proposition) and $(\xi_k)$ is a Gaussian white noise. 
 
 For correlated OU processes,
 \begin{eqnarray*}
-  X^i_{t_{k+1}}  &=&  e^{-\int_{t_k}^{t_{k+1}}\beta^i_v\,dv } X^i_{t_k} + (L_k Z_{k+1})^i
+  X^i_{t_{k+1}}  &=&  e^{-\int_{t_k}^{t_{k+1}}\beta^i_v\,dv } X^i_{t_k} + (L_{k+1} \xi_{k+1})^i
 \end{eqnarray*}
-where 
+where $\xi_{k+1}$ is a standard Gaussian vector,
 \begin{eqnarray*}
   \Gamma^{ij}_{k+1} 
-   &=&  \int_{t_k}^{t_{k+1}} \rho^{ij}_u \sigma^i_u \sigma^j_u e^{\int_{u}^{t_{k+1}}(\beta^i_v+\beta^j_v)\,dv } \, du 
+   &=&  \int_{t_k}^{t_{k+1}} \rho^{ij}_u \sigma^i_u \sigma^j_u e^{-\int_{u}^{t_{k+1}}(\beta^i_v+\beta^j_v)\,dv } \, du 
 \end{eqnarray*}
-and $L$ is a square root of $\Gamma$, meaning that $L$ is a solution of $LL^\top = \Gamma$ as given by the SVD or Cholesky decomposition.
+is the conditional covariance matrix, and $L_{k+1}$ is a square root of $\Gamma_{k+1}$, meaning that $L_{k+1}L_{k+1}^\top = \Gamma_{k+1}$, as given by the Cholesky or the eigenvalue decomposition (the latter when $\Gamma_{k+1}$ is singular).
 
 
 
@@ -6215,37 +6234,39 @@ This is the case of the currency basis which is the difference of two lognormal 
 
 Nevertheless, we can approximate this process by a normal or shifted lognormal process by moment matching of the marginal distributions.
 
+\paragraph{Moments}
+Write $A = e^{\mu^1+\sigma^1Z^1}$, $B = e^{\mu^2+\sigma^2Z^2}$, $\rho$ the correlation of $Z^1$ and $Z^2$, and
+\begin{eqnarray*}
+  M_{mn} ~:=~ \EE[A^mB^n] ~=~ \exp\left( m\mu^1 + n\mu^2 + \tfrac12\left( m^2(\sigma^1)^2 + n^2(\sigma^2)^2 + 2mn\rho\sigma^1\sigma^2 \right) \right) .
+\end{eqnarray*}
+Then $X = A - B$ has
+\begin{eqnarray}
+  \EE[X] &=& M_{10} - M_{01} ~=~ e^{\mu^1 +  \frac{1}{2} (\sigma^1)^2} - e^{\mu^2 +  \frac{1}{2} (\sigma^2)^2} , \\
+  \VV[X] &=& M_{20} - 2M_{11} + M_{02} - \EE[X]^2 \nonumber \\
+  &=& M_{10}^2\left(e^{(\sigma^1)^2}-1\right) + M_{01}^2\left(e^{(\sigma^2)^2}-1\right) - 2M_{10}M_{01}\left(e^{\rho\sigma^1\sigma^2}-1\right) , \\
+  \mathbb{SK}[X] &=& \frac{\EE[X^3] - 3\EE[X]\,\EE[X^2] + 2\EE[X]^3}{\VV[X]^{3/2}} , \qquad
+  \EE[X^3] ~=~ M_{30} - 3M_{21} + 3M_{12} - M_{03} ,
+\end{eqnarray}
+with $\EE[X^2] = M_{20} - 2M_{11} + M_{02}$. (Checked by Monte Carlo with $8\cdot10^6$ draws: mean, variance and skewness agree within the sampling error.)
+
 \paragraph{Normal approximation}
-
+$X$ can be approximated by $\mathcal{N}(\mu,\sigma^2)$ with
 \begin{eqnarray}
-  \EE[X] &=& e^{\mu^1 +  \frac{1}{2} (\sigma^1)^2} - e^{\mu^2 +  \frac{1}{2} (\sigma^2)^2}  \\
-  \VV[X]  &=& e^{\mu^1} e^{\mu^2} e^{\rho \sigma^1 \sigma^2}  ????
+  \mu ~=~ \EE[X] , \qquad \sigma ~=~ \sqrt{\VV[X]} .
 \end{eqnarray}
-
-So $X$ can be approximated by $\mathcal{N}(\mu,\sigma^2)$ where:
-\begin{eqnarray}
-  \mu &=& e^{\mu^1 +  \frac{1}{2} (\sigma^1)^2} - e^{\mu^2 +  \frac{1}{2} (\sigma^2)^2}  \\
-  \sigma  &=& e^{\frac{1}{2}(\mu^1 + \mu^2 + \rho \sigma^1 \sigma^2)}   ????
-\end{eqnarray}
-
 
 \paragraph{Shifted lognormal approximation}
-
-We have 
+A shifted lognormal $Y = a + \epsilon\, e^{\mu + \sigma Z}$, $\epsilon = \pm1$, has, with $w = e^{\sigma^2}$,
 \begin{eqnarray}
-  \EE[X] &=& e^{\mu^1 +  \frac{1}{2} (\sigma^1)^2} - e^{\mu^2 +  \frac{1}{2} (\sigma^2)^2}  \\
-  \VV[X]  &=& e^{\mu^1} e^{\mu^2} e^{\rho \sigma^1 \sigma^2}  \\
-  \mathbb{SK}[X]  &=& ?? 
+  \EE[Y] &=& a + \epsilon\, e^{\mu + \frac{1}{2}\sigma^2} , \\
+  \VV[Y]  &=& e^{2\mu + \sigma^2}\left(e^{\sigma^2}-1\right) ~=~ e^{2\mu}w(w-1) , \\
+  \mathbb{SK}[Y]  &=& \epsilon\,(w+2)\sqrt{w-1} .
 \end{eqnarray}
-
-Comparatively, the moments of a shifted lognormal $Y = a + e^{\mu + \sigma Z}$ are: 
-\begin{eqnarray}
-  \EE[Y] &=& a + e^{\mu + \frac{1}{2}\sigma^2} \\
-  \VV[Y]  &=& e^{2\mu +  \frac{1}{2}\sigma^2}  \\
-  \mathbb{SK}[Y]  &=& ??
-\end{eqnarray}
-
-We can solve this system of equations:
+Matching the mean, variance and skewness $\gamma = \mathbb{SK}[X]$ gives $\epsilon = \mathrm{sign}(\gamma)$ and the unique root $w > 1$ of $(w+2)^2(w-1) = \gamma^2$,
+\begin{eqnarray*}
+  w ~=~ \beta^{1/3} + \beta^{-1/3} - 1 , \qquad \beta ~=~ 1 + \tfrac12\gamma^2 + |\gamma|\sqrt{1 + \tfrac14\gamma^2} ,
+\end{eqnarray*}
+then $\sigma^2 = \ln w$, $e^{\mu} = \sqrt{\VV[X]/(w(w-1))}$ and $a = \EE[X] - \epsilon\, e^{\mu}\sqrt{w}$. (Checked numerically: the root solves the cubic to $10^{-15}$ and the matched $Y$ reproduces the three moments within the Monte Carlo error.)
 
 
 
