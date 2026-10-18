@@ -175,6 +175,31 @@ class Coupon:
 LIBOR = Coupon("libor")
 
 
+def caplet_total_variance(m, block, a, b, coupon):
+    """Total variance w of ln C under the native b-forward measure Q^{e|e,b}, e = block ("d" or "f"), for the
+    coupon factor C on [a, b] of a native caplet (Proposition "Caplets on Libor-type and compounded coupons"):
+      libor (fixed at a):        w = int_0^a |Sigma_{u,b} - Sigma_{u,a}|^2 du;
+      daily (fixed at b):        w = int_0^a |Sigma_{u,b} - Sigma_{u,a}|^2 du + sum_k int_{t_k}^{t_{k+1}} |Sigma_{u,b} - Sigma_{u,t_{k+1}}|^2 du
+                                 on the fixing grid a = t_0 < ... < t_n = b (coupon_grid(a, b, step));
+      continuous (step -> 0):    w = int_0^a |Sigma_{u,b} - Sigma_{u,a}|^2 du + int_a^b |Sigma_{u,b}|^2 du,
+    with Sigma = Sigma^{e|e} the bond volatility of the block. ln C is Gaussian in the LGCM, so C is lognormal
+    with mean E^{e|e,b}[C] = kappa Z_{0,a} / Z_{0,b} (kappa = 1 for compounded coupons)."""
+    if block not in ("d", "f"):
+        raise ValueError(f"block must be 'd' or 'f', got {block!r}")
+    S = lambda T, c=1.0: m.Sig(block, T, c)
+    w = m.I(S(b) + S(a, -1.0), S(b) + S(a, -1.0), 0.0, a) if a > 0 else 0.0
+    if coupon.kind == "libor":
+        return float(w)
+    if coupon.kind == "continuous":
+        return float(w + m.I(S(b), S(b), a, b))
+    g = coupon_grid(a, b, coupon.step)
+    for t0, t1 in zip(g[:-1], g[1:]):
+        if t1 < b:
+            L = S(b) + S(t1, -1.0)
+            w += m.I(L, L, t0, t1)
+    return float(w)
+
+
 def fx_collateral_convexity(m, T):
     """x^{df|f}_{0,T} / x^{df|d}_{0,T} = exp(-int_0^T Sigma^{df}_{u,T}.Sigma^{d->f}_{u,T} du), Sigma^{d->f} = -Sigma^c."""
     return float(np.exp(m.I(m.SigDF(T), m.Sig("c", T), 0.0, T)))
