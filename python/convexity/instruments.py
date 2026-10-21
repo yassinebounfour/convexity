@@ -260,6 +260,37 @@ class Swaption(Instrument):
 
 
 @dataclass(frozen=True)
+class Caplet(Instrument):
+    """Caplet on the coupon of `index` over [start, end] under native collateral, paid at `end`:
+    payoff ((1 + theta R) - (1 + theta K))^+ with theta = end - start and 1 + theta R the coupon factor C of the
+    index (Libor-type: kappa / Z_{start,end}, fixed at start; compounded overnight: fixed at end). strike None
+    is ATM (the forward rate). Quoted as the price per unit notional (pricer.caplet_price)."""
+    index: object
+    start: float
+    end: float
+    strike: float = None
+
+    def __post_init__(self):
+        if not 0 <= self.start < self.end:
+            raise ValueError(f"caplet period [{self.start}, {self.end}] must satisfy 0 <= start < end")
+
+    @property
+    def pillar(self):
+        return self.end
+
+    @property
+    def label(self):
+        k = "ATM" if self.strike is None else f"K={100 * self.strike:g}%"
+        return f"{self.index.name} caplet {_fmt(self.start)}-{_fmt(self.end)} {k}"
+
+    def target(self, setup):
+        return setup.role(self.index.currency)
+
+    def quote(self, pricer):
+        return pricer.caplet_price(self)
+
+
+@dataclass(frozen=True)
 class FXOption(Instrument):
     """ATM FX option at `expiry`, quoted as a Black vol (collateral free in the LGCM). Unchanged by
     inverting the quoted pair: ln x_T is Gaussian, so 1/x_T is lognormal with the same total variance

@@ -24,10 +24,10 @@ def _():
     from convexity.calibration import BlockSpec, CalibrationError, ModelSpec, calibrate, default_spec
     from convexity.calibration_check import analytic_report, mc_report
     from convexity.curve_calibration import calibrate_curves
-    from convexity.instruments import (CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap,
+    from convexity.instruments import (Caplet, CurrencyBasisSwaption, FXForward, FXOption, ResettingCCS, Swap,
                                                    Swaption)
     from convexity.curves import Index
-    from convexity.market import Coupon, LIBOR, fx_collateral_convexity
+    from convexity.market import Coupon, LIBOR, caplet_total_variance, fx_collateral_convexity
     from convexity.market_data import MARKETS, example_quotes
 
     # colour-blind-safe palette (Okabe-Ito), one colour per object across all panels
@@ -54,10 +54,10 @@ def _():
     def line(x, y, color, name, dash="-", width=2, show=True, **kw):
         return go.Scatter(x=x, y=y, mode="lines", line=dict(color=color, dash=DASH.get(dash, dash), width=width),
                           name=name, showlegend=show, **kw)
-    return (BlockSpec, C, CalibrationError, Coupon, CurrencyBasisSwaption, FXForward, FXOption, Index, LIBOR, MARKETS,
+    return (BlockSpec, C, Caplet, CalibrationError, Coupon, CurrencyBasisSwaption, FXForward, FXOption, Index, LIBOR, MARKETS,
             ModelSpec, ResettingCCS, Swap, Swaption, analytic_report, calibrate, calibrate_curves, default_spec,
-            example_quotes, functools, fx_collateral_convexity, go, line, make_subplots, mc_report, mo, np,
-            panel_legends, replace, style)
+            caplet_total_variance, example_quotes, functools, fx_collateral_convexity, go, line, make_subplots,
+            mc_report, mo, np, panel_legends, replace, style)
 
 
 @app.cell
@@ -86,6 +86,10 @@ def _(mo):
     and is asymptotic in the volatility, its error is shown in the `approx` column below. The multi-factor
     case uses the Gaussian approximation. Mean reversions and correlations are *marked* inputs, not calibrated.
     The Monte Carlo check is a statistical statement: model minus market should lie within 4 standard errors.
+
+    The section **USDJPY versus EURUSD** near the end calibrates both markets side by side and compares a
+    cross-currency swap on compounded overnight legs (SOFR vs TONA) with one on a Libor-type leg (SOFR vs EURIBOR):
+    funding spread, collateral convexity and its in-arrears term, and caplets on both coupon types.
     """)
     return
 
@@ -482,6 +486,107 @@ def _(C, beta_c, beta_f, cal, cbscale, go, libor_calibrated, line, market, mo, n
     markets, because $K-1$ itself is small (see above) and the two coupons differ by only a relative amount of
     $10^{{-8}}$ to $10^{{-7}}$ (about $2\\cdot10^{{-8}}$ in $\\ln K$ on the calibrated GBPUSD model, $10^{{-7}}$ on the test model of the notes; see the coupon comparison above), far below any market tick. The point of the panel is this robustness, not a correction.
     """), _fig])
+    return
+
+
+@app.cell
+def _(C, CalibrationError, Caplet, Coupon, Index, LIBOR, beta_c, beta_f, calibrated, caplet_total_variance, cbscale,
+      line, make_subplots, mo, np, panel_legends, rho, style):
+    _pair = ("USDJPY", "EURUSD")            # RFR foreign leg (TONA) vs Libor-type foreign leg (EURIBOR 3M)
+    _col = {"USDJPY": C["lgcm"], "EURUSD": C["zfd"]}
+    try:
+        _cals = {_m: calibrated(_m, rho.value, cbscale.value, beta_c.value, beta_f.value) for _m in _pair}
+    except (CalibrationError, ValueError) as _e:
+        mo.stop(True, mo.md(f"## USDJPY versus EURUSD: RFR and EURIBOR legs\n\nNot available for the current controls: {_e}"))
+
+    def _whatif(idx):
+        """The other coupon type on the same currency: a compounded overnight index for an IBOR index, a Libor-type
+        index (same tenor, zero funding spread) for an overnight index."""
+        if idx.kind == "IBOR":
+            return Index(f"{idx.currency} overnight (what-if)", idx.currency)
+        return Index(f"{idx.name} Libor-type (what-if)", idx.currency, "IBOR", idx.tenor, 0.0)
+
+    # --- cross-currency swap legs
+    _legs = []
+    for _m, _cal in _cals.items():
+        _s, _mod = _cal.curves.setup, _cal.model
+        _f = _s.foreign_index
+        _own = _f.coupon
+        for _a in (5.0, 10.0, 30.0):
+            _b = _a + _f.tenor
+            _Kl, _Kc = LIBOR.convexity(_mod, 0.0, _a, _b), Coupon("daily").convexity(_mod, 0.0, _a, _b)
+            _legs.append({"market": _m, "USD leg": f"{_s.domestic_index.name}, compounded, κ = 1",
+                          "foreign leg": f"{_f.name}, {'compounded' if _own.kind != 'libor' else 'Libor-type'}",
+                          "κ^f": f"{_f.kappa:.5f}", "period": f"[{_a:g}Y, {_b:g}Y]",
+                          "K − 1, own coupon (bp)": round(float(1e4 * (_own.convexity(_mod, 0.0, _a, _b) - 1)), 4),
+                          "in-arrears term ln K^comp − ln K^Libor (1e-8; what-if for EURIBOR)": round(float(1e8 * (np.log(_Kc) - np.log(_Kl))), 3)})
+
+    # --- caplets: own coupon type against the other one, ATM, 3M periods
+    _th = 0.25
+    _starts = np.r_[0.25, 0.5, 0.75, 1:15.25:0.5]
+    _fig = make_subplots(1, 2, horizontal_spacing=0.1, subplot_titles=[
+        "(a) ATM caplet on the foreign index: own coupon − other type (bp)", "(b) vol ratio √(w<sub>compounded</sub>/w<sub>Libor</sub>)"])
+    _caps = []
+    for _m, _cal in _cals.items():
+        _pr, _s = _cal.pricer(), _cal.curves.setup
+        _f = _s.foreign_index
+        _alt = _whatif(_f)
+        _p_own = [1e4 * Caplet(_f, a, a + _th).quote(_pr) for a in _starts]
+        _p_alt = [1e4 * Caplet(_alt, a, a + _th).quote(_pr) for a in _starts]
+        _own_t = "compounded" if _f.kind == "OIS" else "Libor-type"
+        _fig.add_trace(line(_starts, np.array(_p_own) - np.array(_p_alt), _col[_m],
+                            f"{_m}: {_f.name} {_own_t} − {'Libor-type' if _f.kind == 'OIS' else 'compounded'} (a)"), 1, 1)
+        _ratio = [np.sqrt(caplet_total_variance(_cal.model, "f", a, a + _th, Coupon("daily"))
+                          / caplet_total_variance(_cal.model, "f", a, a + _th, LIBOR)) for a in _starts]
+        _fig.add_trace(line(_starts, _ratio, _col[_m], f"{_m}: {_f.currency} block (b)", "dashdot"), 1, 2)
+        for _idx in (_s.domestic_index, _f):
+            for _a in (1.0, 5.0):
+                _cap, _w = Caplet(_idx, _a, _a + _th), Caplet(_whatif(_idx), _a, _a + _th)
+                _F, _ = _pr.caplet_forward(_cap)
+                _Fw, _ = _pr.caplet_forward(_w)
+                _caps.append({"market": _m, "index": _idx.name, "period": f"[{_a:g}Y, {_a + _th:g}Y]",
+                              "forward, own (%)": round(100 * (_F - 1) / _th, 4),
+                              "forward, other type (%)": round(100 * (_Fw - 1) / _th, 4),
+                              "price, own (bp)": round(1e4 * _cap.quote(_pr), 4),
+                              "price, other type (bp)": round(1e4 * _w.quote(_pr), 4),
+                              "√(w_own / w_other)": round(float(np.sqrt(_pr.caplet_variance(_cap) / _pr.caplet_variance(_w))), 4)})
+    _cd = _cals["USDJPY"]
+    _rd = [np.sqrt(caplet_total_variance(_cd.model, "d", a, a + _th, Coupon("daily"))
+                   / caplet_total_variance(_cd.model, "d", a, a + _th, LIBOR)) for a in _starts]
+    _fig.add_trace(line(_starts, _rd, C["d"], "USD block, SOFR (b)", ":"), 1, 2)
+    _fig.add_trace(line(_starts, np.sqrt(1 + _th / (3 * _starts)), C["grey"], "Ho–Lee √(1 + θ/(3a)) (b)", "dot", 1.2), 1, 2)
+    _fig.add_hline(y=0, line=dict(color=C["grey"], width=1), row=1, col=1)
+    for _c in (1, 2):
+        _fig.update_xaxes(title_text="period start a (years)", row=1, col=_c)
+    _fig.update_yaxes(title_text="price difference (bp)", row=1, col=1)
+    _fig.update_yaxes(title_text="ratio", row=1, col=2)
+    style(_fig, width=1150, height=480)
+    _fig.update_layout(margin=dict(t=130), legend=dict(y=1.13))
+
+    mo.vstack([mo.md(r"""## USDJPY versus EURUSD: RFR and EURIBOR legs
+
+    Both markets calibrated with the current controls. Since the Libor transition a USDJPY cross-currency swap
+    exchanges compounded **SOFR against TONA**, while the EURUSD example keeps **3M EURIBOR** on the EUR leg
+    (Libor-type, fixed at the period start). The swaplet spread has the same form in both cases,
+    $\theta B_j = \kappa^d P_{j-1}/P_j - \kappa^f K_j F_{j-1}/F_j$; the coupon type changes two ingredients:
+
+    - **the level** $\kappa$: a compounded coupon has no funding spread ($\kappa = 1$ exactly), EURIBOR keeps
+      $\kappa^f = 1 + \theta s$ (deterministic multiplicative spread, an assumption);
+    - **the convexity** $K$: a compounded coupon also fixes during its accrual period, which adds an
+      in-arrears term to $\ln K$. It is tiny (last column, in units of $10^{-8}$) against $K-1$ itself.
+
+    The USD leg is compounded SOFR in both markets, model-free under USD collateral.
+    """), mo.ui.table(_legs, selection=None),
+        mo.md(r"""### Caplets
+
+    A Libor-type caplet fixes at the period start, a compounded caplet only at the end: its variance keeps
+    accumulating during the accrual period (Proposition "Caplets on Libor-type and compounded coupons";
+    Ho–Lee: effective expiry $a + \theta/3$). Panel (a) compares each foreign index with its own coupon type and
+    the other type as a what-if: for TONA the what-if Libor-type coupon has the same forward ($\kappa = 1$),
+    so the gap is pure variance; for EURIBOR the what-if compounded coupon also loses the funding spread, so
+    the gap mixes the level and the variance. Swaptions are not affected by the coupon type (the floating leg
+    is worth $Z_{T_0} - Z_{T_n}$ at exercise).
+    """), _fig, mo.ui.table(_caps, selection=None)])
     return
 
 

@@ -13,7 +13,7 @@ from scipy.stats import norm
 
 from . import gaussian_approx as ga
 from .curves import DiscountCurveKey
-from .market import LIBOR, fx_total_variance
+from .market import LIBOR, black, caplet_total_variance, fx_total_variance
 
 
 class Pricer:
@@ -58,6 +58,17 @@ class Pricer:
 
     def cb_normal_vol(self, option):
         self._no_vol(option)
+
+    def caplet_price(self, caplet):
+        self._no_vol(caplet)
+
+    def caplet_forward(self, caplet):
+        """Forward of the coupon factor C under the native forward measure: kappa Z_a / Z_b (kappa = 1 for
+        compounded coupons, Lemma "native forward of a compounded coupon"), with Z_b."""
+        s, idx = self.setup, caplet.index
+        key = s.key(s.role(idx.currency) * 2)
+        Za, Zb = self.curves.Z(key, caplet.start), self.curves.Z(key, caplet.end)
+        return idx.kappa * Za / Zb, Zb
 
 
 class DeterministicPricer(Pricer):
@@ -150,6 +161,20 @@ class LGCMPricer(Pricer):
 
     def fx_black_vol(self, option):
         return sqrt(fx_total_variance(self.model, option.expiry) / option.expiry)
+
+    def caplet_variance(self, caplet):
+        """Total variance of ln C under the native forward measure (market.caplet_total_variance)."""
+        role = self.setup.role(caplet.index.currency)
+        return caplet_total_variance(self.model, role, caplet.start, caplet.end, caplet.index.coupon)
+
+    def caplet_price(self, caplet):
+        """Exact in the LGCM: C is lognormal under Q^{e|e,end} with mean F = kappa Z_a/Z_b, so the price is the
+        Black price Z_b Black(F, 1 + theta K, w) (Proposition "Caplets on Libor-type and compounded coupons")."""
+        F, Zb = self.caplet_forward(caplet)
+        th = caplet.end - caplet.start
+        Kc = F if caplet.strike is None else 1.0 + th * caplet.strike
+        w = self.caplet_variance(caplet)
+        return float(Zb * (black(F, Kc, w) if w > 0 else max(F - Kc, 0.0)))
 
     def _cb_setup(self, option):
         u = option.underlying
